@@ -265,7 +265,62 @@ td.actions button {
     width: 100%;
   }
 
+  .tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .tabs .tab {
+    flex: 1 1 calc(50% - 8px);
+    width: auto;
+  }
+
+  table {
+    min-width: 0;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tbody,
+  tr,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  tr {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+
+  td {
+    border-bottom: 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+  }
+
+  td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    flex: 0 0 42%;
+    font-weight: 700;
+  }
+
   td.actions button {
     width: auto;
+  }
+
+  td.actions {
+    display: block;
+  }
+
+  td.actions::before,
+  td.empty::before {
+    content: "";
+    display: none;
   }
 }

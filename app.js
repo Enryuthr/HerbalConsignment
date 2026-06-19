@@ -247,6 +247,16 @@ function renderRows(tableId, rows, rowHtml) {
     return;
   }
   tbody.innerHTML = rows.map((row) => `<tr>${rowHtml(row)}</tr>`).join("");
+  addMobileLabels(tbody);
+}
+
+function addMobileLabels(tbody) {
+  const labels = [...tbody.closest("table").querySelectorAll("th")].map((th) => th.textContent);
+  tbody.querySelectorAll("tr").forEach((row) => {
+    row.querySelectorAll("td").forEach((cell, index) => {
+      cell.dataset.label = labels[index] || "";
+    });
+  });
 }
 
 function saleOmzet(sale) {
