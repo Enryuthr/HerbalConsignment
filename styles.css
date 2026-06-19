@@ -173,10 +173,20 @@ textarea {
 
 .form-actions,
 .inline-actions,
-.backup-actions {
+.backup-actions,
+.report-filter {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.report-filter {
+  align-items: end;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 12px;
 }
 
 .secondary {

@@ -47,6 +47,21 @@ function textValue(id) {
   return document.getElementById(id).value.trim();
 }
 
+function dateInReportRange(date) {
+  const start = textValue("reportStartDate");
+  const end = textValue("reportEndDate");
+  return (!start || date >= start) && (!end || date <= end);
+}
+
+function reportDateNote() {
+  const start = textValue("reportStartDate");
+  const end = textValue("reportEndDate");
+  if (start && end) return `Showing ${start} to ${end}.`;
+  if (start) return `Showing from ${start}.`;
+  if (end) return `Showing until ${end}.`;
+  return "Showing all dates.";
+}
+
 function productName(id) {
   return data.products.find((item) => item.product_id === id)?.product_name || "(deleted product)";
 }
@@ -214,6 +229,7 @@ function renderPayments() {
 }
 
 function renderReports() {
+  document.getElementById("reportDateNote").textContent = reportDateNote();
   renderRows(
     "stockReportTable",
     stockReportRows(),
@@ -271,8 +287,8 @@ function saleProfit(sale) {
 
 function stockReportRows() {
   const rows = new Map();
-  data.deliveries.forEach((item) => getStockRow(rows, item.pharmacy_id, item.product_id).sent += item.quantity_sent);
-  data.sales.forEach((item) => {
+  data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => getStockRow(rows, item.pharmacy_id, item.product_id).sent += item.quantity_sent);
+  data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     const row = getStockRow(rows, item.pharmacy_id, item.product_id);
     row.sold += item.quantity_sold;
     row.omzet += saleOmzet(item);
@@ -303,8 +319,8 @@ function getStockRow(rows, pharmacy_id, product_id) {
 function balanceReportRows() {
   const rows = new Map();
   data.pharmacies.forEach((item) => rows.set(item.pharmacy_id, balanceRow(item.pharmacy_id)));
-  data.sales.forEach((item) => getBalanceRow(rows, item.pharmacy_id).omzet += saleOmzet(item));
-  data.payments.forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
+  data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).omzet += saleOmzet(item));
+  data.payments.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
   return [...rows.values()]
     .map((row) => ({ ...row, balance: row.omzet - row.paid }))
     .filter((row) => row.omzet || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
@@ -575,6 +591,13 @@ function wireEvents() {
 
   document.getElementById("exportBackup").addEventListener("click", exportBackup);
   document.getElementById("importBackup").addEventListener("change", importBackup);
+  document.getElementById("reportStartDate").addEventListener("change", renderAll);
+  document.getElementById("reportEndDate").addEventListener("change", renderAll);
+  document.getElementById("clearReportDates").addEventListener("click", () => {
+    document.getElementById("reportStartDate").value = "";
+    document.getElementById("reportEndDate").value = "";
+    renderAll();
+  });
   document.getElementById("exportStockCsv").addEventListener("click", () => {
     exportCsv(`stock-report-${today()}.csv`, stockReportRows(), [
       { label: "Pharmacy", value: (row) => row.pharmacy },

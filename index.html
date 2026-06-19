@@ -262,6 +262,18 @@
             <button id="exportBalanceCsv" type="button">Balance report CSV</button>
           </div>
         </div>
+        <div class="report-filter">
+          <label>
+            From date
+            <input id="reportStartDate" type="date">
+          </label>
+          <label>
+            To date
+            <input id="reportEndDate" type="date">
+          </label>
+          <button id="clearReportDates" type="button" class="secondary">Show all dates</button>
+        </div>
+        <p class="muted" id="reportDateNote"></p>
 
         <h3>Stock per Pharmacy and Product</h3>
         <div class="table-wrap">
