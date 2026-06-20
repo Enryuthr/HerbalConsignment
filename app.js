@@ -624,7 +624,7 @@ function wireEvents() {
     if (target.dataset.deleteProduct) deleteProduct(target.dataset.deleteProduct);
     if (target.dataset.editPharmacy) editPharmacy(target.dataset.editPharmacy);
     if (target.dataset.deletePharmacy) deletePharmacy(target.dataset.deletePharmacy);
-    if (target.dataset.removeDeliveryLine) {
+    if ("removeDeliveryLine" in target.dataset) {
       target.closest(".delivery-line").remove();
       updateDeliveryLineButtons();
     }
