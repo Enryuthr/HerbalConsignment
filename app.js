@@ -99,12 +99,17 @@ function renderDropdowns() {
   fillSelect("deliveryPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
   fillSelect("salesPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
   fillSelect("paymentPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
-  fillSelect("deliveryProduct", data.products, "product_id", "product_name", "Choose product");
+  document.querySelectorAll(".delivery-product").forEach((select) => {
+    fillSelectElement(select, data.products, "product_id", "product_name", "Choose product");
+  });
   fillSelect("salesProduct", data.products, "product_id", "product_name", "Choose product");
 }
 
 function fillSelect(id, rows, valueKey, labelKey, placeholder) {
-  const select = document.getElementById(id);
+  fillSelectElement(document.getElementById(id), rows, valueKey, labelKey, placeholder);
+}
+
+function fillSelectElement(select, rows, valueKey, labelKey, placeholder) {
   const selected = select.value;
   select.innerHTML = `<option value="">${placeholder}</option>`;
   rows.forEach((row) => {
@@ -114,6 +119,36 @@ function fillSelect(id, rows, valueKey, labelKey, placeholder) {
     select.appendChild(option);
   });
   select.value = rows.some((row) => row[valueKey] === selected) ? selected : "";
+}
+
+function addDeliveryLine() {
+  const line = document.createElement("div");
+  line.className = "delivery-line";
+  line.innerHTML = `
+    <label>
+      Product *
+      <select class="delivery-product" required></select>
+    </label>
+    <label>
+      Quantity sent *
+      <input class="delivery-quantity" type="number" min="1" step="1" required>
+    </label>
+    <button type="button" class="secondary remove-delivery-line" data-remove-delivery-line>Remove</button>
+  `;
+  document.getElementById("deliveryLines").appendChild(line);
+  renderDropdowns();
+  updateDeliveryLineButtons();
+}
+
+function resetDeliveryLines() {
+  const lines = document.getElementById("deliveryLines");
+  lines.innerHTML = "";
+  addDeliveryLine();
+}
+
+function updateDeliveryLineButtons() {
+  const buttons = document.querySelectorAll(".remove-delivery-line");
+  buttons.forEach((button) => button.hidden = buttons.length === 1);
 }
 
 function totals() {
@@ -387,18 +422,22 @@ function savePharmacy(event) {
 
 function saveDelivery(event) {
   event.preventDefault();
-  const quantity = numberValue("quantitySent");
-  if (quantity <= 0) return alert("Quantity sent must be more than 0.");
-  data.deliveries.push({
+  const lines = [...document.querySelectorAll(".delivery-line")].map((line) => ({
+    product_id: line.querySelector(".delivery-product").value,
+    quantity_sent: Number(line.querySelector(".delivery-quantity").value || 0),
+  }));
+  if (lines.some((line) => !line.product_id || line.quantity_sent <= 0)) return alert("Choose a product and quantity more than 0 for each line.");
+  data.deliveries.push(...lines.map((line) => ({
     delivery_id: makeId("delivery"),
     date: textValue("deliveryDate"),
     pharmacy_id: document.getElementById("deliveryPharmacy").value,
-    product_id: document.getElementById("deliveryProduct").value,
-    quantity_sent: quantity,
+    product_id: line.product_id,
+    quantity_sent: line.quantity_sent,
     notes: textValue("deliveryNotes"),
-  });
+  })));
   saveData();
   event.target.reset();
+  resetDeliveryLines();
   setDefaultDates();
   renderAll();
 }
@@ -569,6 +608,7 @@ function wireEvents() {
   document.getElementById("deliveryForm").addEventListener("submit", saveDelivery);
   document.getElementById("salesForm").addEventListener("submit", saveSale);
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
+  document.getElementById("addDeliveryLine").addEventListener("click", addDeliveryLine);
   document.getElementById("cancelProductEdit").addEventListener("click", () => {
     document.getElementById("productForm").reset();
     endProductEdit();
@@ -584,6 +624,10 @@ function wireEvents() {
     if (target.dataset.deleteProduct) deleteProduct(target.dataset.deleteProduct);
     if (target.dataset.editPharmacy) editPharmacy(target.dataset.editPharmacy);
     if (target.dataset.deletePharmacy) deletePharmacy(target.dataset.deletePharmacy);
+    if (target.dataset.removeDeliveryLine) {
+      target.closest(".delivery-line").remove();
+      updateDeliveryLineButtons();
+    }
     if (target.dataset.deleteDelivery) deleteById("deliveries", "delivery_id", target.dataset.deleteDelivery);
     if (target.dataset.deleteSale) deleteById("sales", "sales_id", target.dataset.deleteSale);
     if (target.dataset.deletePayment) deleteById("payments", "payment_id", target.dataset.deletePayment);
@@ -621,4 +665,5 @@ function wireEvents() {
 
 wireEvents();
 setDefaultDates();
+updateDeliveryLineButtons();
 renderAll();

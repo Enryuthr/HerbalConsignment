@@ -189,6 +189,19 @@ textarea {
   padding: 12px;
 }
 
+.delivery-lines {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.delivery-line {
+  align-items: end;
+  display: grid;
+  grid-template-columns: 1fr 160px auto;
+  gap: 10px;
+}
+
 .secondary {
   background: #e2e8e1;
   color: var(--ink);
@@ -263,6 +276,10 @@ td.actions button {
   }
 
   .entry-form {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-line {
     grid-template-columns: 1fr;
   }
 

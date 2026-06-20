@@ -136,14 +136,22 @@
             Pharmacy *
             <select id="deliveryPharmacy" required></select>
           </label>
-          <label>
-            Product *
-            <select id="deliveryProduct" required></select>
-          </label>
-          <label>
-            Quantity sent *
-            <input id="quantitySent" type="number" min="1" step="1" required>
-          </label>
+          <div class="wide">
+            <div id="deliveryLines" class="delivery-lines">
+              <div class="delivery-line">
+                <label>
+                  Product *
+                  <select class="delivery-product" required></select>
+                </label>
+                <label>
+                  Quantity sent *
+                  <input class="delivery-quantity" type="number" min="1" step="1" required>
+                </label>
+                <button type="button" class="secondary remove-delivery-line" data-remove-delivery-line>Remove</button>
+              </div>
+            </div>
+            <button type="button" class="secondary" id="addDeliveryLine">Add product</button>
+          </div>
           <label class="wide">
             Notes
             <textarea id="deliveryNotes"></textarea>

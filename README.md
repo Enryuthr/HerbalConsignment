@@ -6,7 +6,7 @@ Small local web app for tracking herbal products consigned to pharmacies.
 
 - Saves product master data once.
 - Saves pharmacy master data once.
-- Records product deliveries to pharmacies.
+- Records one or more product deliveries to a pharmacy.
 - Records pharmacy sales reports.
 - Records payments received from pharmacies.
 - Shows dashboard totals, stock reports, balance reports, JSON backup, JSON import, and CSV exports.
