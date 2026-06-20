@@ -28,6 +28,12 @@
     <main>
       <section id="dashboard" class="page active-page">
         <h2>Dashboard</h2>
+        <div class="report-filter">
+          <label>
+            Month
+            <input id="dashboardMonth" type="month">
+          </label>
+        </div>
         <div class="summary-grid" id="dashboardCards"></div>
       </section>
 
@@ -166,8 +172,7 @@
               <tr>
                 <th>Date</th>
                 <th>Pharmacy</th>
-                <th>Product</th>
-                <th>Qty sent</th>
+                <th>Products sent</th>
                 <th>Notes</th>
                 <th>Action</th>
               </tr>
@@ -280,6 +285,10 @@
         </div>
         <div class="report-filter">
           <label>
+            Month
+            <input id="reportMonth" type="month">
+          </label>
+          <label>
             From date
             <input id="reportStartDate" type="date">
           </label>
@@ -298,10 +307,12 @@
               <tr>
                 <th>Pharmacy</th>
                 <th>Product</th>
+                <th>Last stock</th>
                 <th>Total sent</th>
                 <th>Total sold</th>
                 <th>Remaining</th>
                 <th>Total omzet</th>
+                <th>Total modal</th>
                 <th>Total profit</th>
               </tr>
             </thead>
@@ -316,6 +327,7 @@
               <tr>
                 <th>Pharmacy</th>
                 <th>Total omzet</th>
+                <th>Total modal</th>
                 <th>Payment received</th>
                 <th>Unpaid balance</th>
               </tr>
@@ -328,6 +340,7 @@
       <section id="backup" class="page">
         <h2>Backup</h2>
         <div class="backup-actions">
+          <button id="loadDemoData" type="button" class="secondary">Load demo data</button>
           <button id="exportBackup" type="button">Export Backup as JSON</button>
           <label class="file-button">
             Import Backup from JSON

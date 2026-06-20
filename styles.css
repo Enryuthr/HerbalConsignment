@@ -166,6 +166,38 @@ textarea {
   resize: vertical;
 }
 
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete-list {
+  background: white;
+  border: 1px solid #cbd7ce;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+}
+
+.autocomplete-option {
+  background: white;
+  color: var(--ink);
+  display: block;
+  min-height: 0;
+  padding: 9px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.autocomplete-option:hover {
+  background: #eef4ec;
+}
+
 .wide,
 .form-actions {
   grid-column: 1 / -1;
@@ -244,6 +276,10 @@ th {
 
 td.actions {
   white-space: nowrap;
+}
+
+.delivery-items {
+  line-height: 1.55;
 }
 
 td.actions button {

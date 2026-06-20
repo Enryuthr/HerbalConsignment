@@ -48,14 +48,18 @@ function textValue(id) {
 }
 
 function dateInReportRange(date) {
+  const month = textValue("reportMonth");
+  if (month) return date <= `${month}-31`;
   const start = textValue("reportStartDate");
   const end = textValue("reportEndDate");
   return (!start || date >= start) && (!end || date <= end);
 }
 
 function reportDateNote() {
+  const month = textValue("reportMonth");
   const start = textValue("reportStartDate");
   const end = textValue("reportEndDate");
+  if (month) return `Showing stock and balance up to ${month}.`;
   if (start && end) return `Showing ${start} to ${end}.`;
   if (start) return `Showing from ${start}.`;
   if (end) return `Showing until ${end}.`;
@@ -96,31 +100,114 @@ function renderAll() {
 }
 
 function renderDropdowns() {
-  fillSelect("deliveryPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
-  fillSelect("salesPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
+  fillSelect("deliveryPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
+  fillSelect("salesPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
   fillSelect("paymentPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
   document.querySelectorAll(".delivery-product").forEach((select) => {
-    fillSelectElement(select, data.products, "product_id", "product_name", "Choose product");
+    fillSelectElement(select, data.products, "product_id", "product_name", "Choose product", true);
   });
   document.querySelectorAll(".sales-product").forEach((select) => {
-    fillSelectElement(select, data.products, "product_id", "product_name", "Choose product");
+    fillSelectElement(select, salesProductChoices(), "product_id", "product_name", "Choose product", true);
   });
 }
 
-function fillSelect(id, rows, valueKey, labelKey, placeholder) {
-  fillSelectElement(document.getElementById(id), rows, valueKey, labelKey, placeholder);
+function fillSelect(id, rows, valueKey, labelKey, placeholder, searchable = false) {
+  fillSelectElement(document.getElementById(id), rows, valueKey, labelKey, placeholder, searchable);
 }
 
-function fillSelectElement(select, rows, valueKey, labelKey, placeholder) {
+function fillSelectElement(select, rows, valueKey, labelKey, placeholder, searchable = false) {
   const selected = select.value;
+  const combo = searchable ? ensureComboSearch(select, placeholder) : null;
+  const sortedRows = [...rows].sort((a, b) => String(a[labelKey]).localeCompare(String(b[labelKey]), "id", { sensitivity: "base" }));
   select.innerHTML = `<option value="">${placeholder}</option>`;
-  rows.forEach((row) => {
+  sortedRows.forEach((row) => {
     const option = document.createElement("option");
     option.value = row[valueKey];
     option.textContent = row[labelKey];
     select.appendChild(option);
   });
-  select.value = rows.some((row) => row[valueKey] === selected) ? selected : "";
+  select.value = [...select.options].some((option) => option.value === selected) ? selected : "";
+  if (combo) {
+    select.comboRows = sortedRows.map((row) => ({ value: row[valueKey], label: row[labelKey] }));
+    if (select.value) combo.input.value = select.selectedOptions[0].textContent;
+    else combo.input.value = "";
+  }
+}
+
+function ensureComboSearch(select, placeholder) {
+  if (select.previousElementSibling?.classList.contains("autocomplete")) {
+    return {
+      input: select.previousElementSibling.querySelector("input"),
+      list: select.previousElementSibling.querySelector(".autocomplete-list"),
+    };
+  }
+  const wrapper = document.createElement("div");
+  const input = document.createElement("input");
+  const list = document.createElement("div");
+  wrapper.className = "autocomplete";
+  input.type = "text";
+  input.className = "select-search";
+  input.placeholder = placeholder;
+  input.required = select.required;
+  list.className = "autocomplete-list";
+  list.hidden = true;
+  select.required = false;
+  select.hidden = true;
+  input.addEventListener("input", () => renderAutocomplete(select));
+  input.addEventListener("focus", () => renderAutocomplete(select));
+  input.addEventListener("blur", () => setTimeout(() => {
+    finalizeAutocomplete(select);
+    list.hidden = true;
+  }, 120));
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const first = list.querySelector("button");
+    if (first) {
+      event.preventDefault();
+      first.click();
+    }
+  });
+  wrapper.append(input, list);
+  select.before(wrapper);
+  return { input, list };
+}
+
+function renderAutocomplete(select) {
+  const combo = ensureComboSearch(select, "");
+  const query = combo.input.value.trim().toLowerCase();
+  const matches = (select.comboRows || []).filter((row) => row.label.toLowerCase().includes(query));
+  const previousValue = select.value;
+  combo.list.innerHTML = "";
+  matches.slice(0, 8).forEach((row) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "autocomplete-option";
+    button.textContent = row.label;
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => chooseAutocomplete(select, row));
+    combo.list.appendChild(button);
+  });
+  const exact = matches.find((row) => row.label.toLowerCase() === query);
+  const unique = query && matches.length === 1 ? matches[0] : null;
+  const nextValue = (exact || unique)?.value || "";
+  select.value = nextValue;
+  if (previousValue !== nextValue) select.dispatchEvent(new Event("change", { bubbles: true }));
+  combo.list.hidden = !matches.length;
+}
+
+function chooseAutocomplete(select, row) {
+  const combo = ensureComboSearch(select, "");
+  const changed = select.value !== row.value;
+  select.value = row.value;
+  combo.input.value = row.label;
+  combo.list.hidden = true;
+  if (changed) select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function finalizeAutocomplete(select) {
+  const combo = ensureComboSearch(select, "");
+  const row = (select.comboRows || []).find((item) => item.value === select.value);
+  if (row) chooseAutocomplete(select, row);
 }
 
 function addDeliveryLine() {
@@ -191,6 +278,7 @@ function totals() {
     sold: sum(stockRows, "sold"),
     remaining: sum(stockRows, "remaining"),
     omzet: sum(stockRows, "omzet"),
+    modal: sum(stockRows, "modal"),
     profit: sum(stockRows, "profit"),
     unpaid: sum(balanceRows, "balance"),
   };
@@ -198,17 +286,25 @@ function totals() {
 
 function renderDashboard() {
   const t = totals();
+  const month = textValue("reportMonth");
   const cards = [
-    ["Total stock sent", t.sent],
-    ["Total quantity sold", t.sold],
+    [month ? "Stock sent this month" : "Total stock sent", t.sent],
+    [month ? "Sold this month" : "Total quantity sold", t.sold],
     ["Total remaining stock", t.remaining],
     ["Total omzet / revenue", money(t.omzet)],
+    ["Total modal", money(t.modal)],
     ["Total profit", money(t.profit)],
     ["Total unpaid balance", money(t.unpaid)],
   ];
   document.getElementById("dashboardCards").innerHTML = cards
     .map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`)
     .join("");
+}
+
+function setReportMonth(value) {
+  document.getElementById("reportMonth").value = value;
+  document.getElementById("dashboardMonth").value = value;
+  renderAll();
 }
 
 function renderProducts() {
@@ -252,16 +348,33 @@ function renderPharmacies() {
 function renderDeliveries() {
   renderRows(
     "deliveryTable",
-    data.deliveries,
-    (item) => `
-      <td>${item.date}</td>
-      <td>${escapeHtml(pharmacyName(item.pharmacy_id))}</td>
-      <td>${escapeHtml(productName(item.product_id))}</td>
-      <td>${item.quantity_sent}</td>
-      <td>${escapeHtml(item.notes)}</td>
-      <td class="actions"><button type="button" class="danger" data-delete-delivery="${item.delivery_id}">Delete</button></td>
+    deliveryRows(),
+    (batch) => `
+      <td>${batch.date}</td>
+      <td>${escapeHtml(pharmacyName(batch.pharmacy_id))}</td>
+      <td class="delivery-items">${batch.items.map((item) => `<div>${escapeHtml(productName(item.product_id))}: <strong>${item.quantity_sent}</strong></div>`).join("")}</td>
+      <td>${escapeHtml(batch.notes)}</td>
+      <td class="actions"><button type="button" class="danger" data-delete-delivery-batch="${batch.batch_id}">Delete</button></td>
     `
   );
+}
+
+function deliveryRows() {
+  const rows = new Map();
+  data.deliveries.forEach((item) => {
+    const batch_id = item.delivery_batch_id || item.delivery_id;
+    if (!rows.has(batch_id)) {
+      rows.set(batch_id, {
+        batch_id,
+        date: item.date,
+        pharmacy_id: item.pharmacy_id,
+        notes: item.notes,
+        items: [],
+      });
+    }
+    rows.get(batch_id).items.push(item);
+  });
+  return [...rows.values()];
 }
 
 function renderSales() {
@@ -303,10 +416,12 @@ function renderReports() {
     (item) => `
       <td>${escapeHtml(item.pharmacy)}</td>
       <td>${escapeHtml(item.product)}</td>
+      <td>${item.last_stock}</td>
       <td>${item.sent}</td>
       <td>${item.sold}</td>
       <td>${item.remaining}</td>
       <td>${money(item.omzet)}</td>
+      <td>${money(item.modal)}</td>
       <td>${money(item.profit)}</td>
     `
   );
@@ -316,6 +431,7 @@ function renderReports() {
     (item) => `
       <td>${escapeHtml(item.pharmacy)}</td>
       <td>${money(item.omzet)}</td>
+      <td>${money(item.modal)}</td>
       <td>${money(item.paid)}</td>
       <td>${money(item.balance)}</td>
     `
@@ -324,13 +440,21 @@ function renderReports() {
 
 function renderRows(tableId, rows, rowHtml) {
   const tbody = document.getElementById(tableId);
+  ensureNumberHeader(tbody);
   if (!rows.length) {
     const colspan = tbody.closest("table").querySelectorAll("th").length;
     tbody.innerHTML = `<tr><td class="empty" colspan="${colspan}">No data yet.</td></tr>`;
     return;
   }
-  tbody.innerHTML = rows.map((row) => `<tr>${rowHtml(row)}</tr>`).join("");
+  tbody.innerHTML = rows.map((row, index) => `<tr><td>${index + 1}</td>${rowHtml(row)}</tr>`).join("");
   addMobileLabels(tbody);
+}
+
+function ensureNumberHeader(tbody) {
+  const headerRow = tbody.closest("table").querySelector("thead tr");
+  if (headerRow.firstElementChild?.textContent !== "No.") {
+    headerRow.insertAdjacentHTML("afterbegin", "<th>No.</th>");
+  }
 }
 
 function addMobileLabels(tbody) {
@@ -353,8 +477,14 @@ function saleProfit(sale) {
 }
 
 function stockReportRows() {
+  const month = textValue("reportMonth");
+  if (month) return monthlyStockReportRows(month);
   const rows = new Map();
-  data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => getStockRow(rows, item.pharmacy_id, item.product_id).sent += item.quantity_sent);
+  data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
+    const row = getStockRow(rows, item.pharmacy_id, item.product_id);
+    row.sent += item.quantity_sent;
+    row.modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
+  });
   data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     const row = getStockRow(rows, item.pharmacy_id, item.product_id);
     row.sold += item.quantity_sold;
@@ -362,7 +492,34 @@ function stockReportRows() {
     row.profit += saleProfit(item);
   });
   return [...rows.values()]
-    .map((row) => ({ ...row, remaining: row.sent - row.sold }))
+    .map((row) => ({ ...row, remaining: row.last_stock + row.sent - row.sold }))
+    .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product));
+}
+
+function monthlyStockReportRows(month) {
+  const rows = new Map();
+  const start = `${month}-01`;
+  const end = `${month}-31`;
+  data.deliveries.filter((item) => item.date <= end).forEach((item) => {
+    const row = getStockRow(rows, item.pharmacy_id, item.product_id);
+    if (item.date < start) row.last_stock += item.quantity_sent;
+    else {
+      row.sent += item.quantity_sent;
+      row.modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
+    }
+  });
+  data.sales.filter((item) => item.date <= end).forEach((item) => {
+    const row = getStockRow(rows, item.pharmacy_id, item.product_id);
+    if (item.date < start) row.last_stock -= item.quantity_sold;
+    else {
+      row.sold += item.quantity_sold;
+      row.omzet += saleOmzet(item);
+      row.profit += saleProfit(item);
+    }
+  });
+  return [...rows.values()]
+    .map((row) => ({ ...row, remaining: row.last_stock + row.sent - row.sold }))
+    .filter((row) => row.last_stock || row.sent || row.sold)
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product));
 }
 
@@ -374,28 +531,49 @@ function getStockRow(rows, pharmacy_id, product_id) {
       product_id,
       pharmacy: pharmacyName(pharmacy_id),
       product: productName(product_id),
+      last_stock: 0,
       sent: 0,
       sold: 0,
       omzet: 0,
+      modal: 0,
       profit: 0,
     });
   }
   return rows.get(key);
 }
 
+function salesProductChoices() {
+  const pharmacy_id = document.getElementById("salesPharmacy")?.value;
+  if (!pharmacy_id) return data.products;
+  return data.products.filter((product) => productStockAtPharmacy(pharmacy_id, product.product_id) > 0);
+}
+
+function productStockAtPharmacy(pharmacy_id, product_id) {
+  const sent = data.deliveries
+    .filter((row) => row.pharmacy_id === pharmacy_id && row.product_id === product_id)
+    .reduce((total, row) => total + row.quantity_sent, 0);
+  const sold = data.sales
+    .filter((row) => row.pharmacy_id === pharmacy_id && row.product_id === product_id)
+    .reduce((total, row) => total + row.quantity_sold, 0);
+  return sent - sold;
+}
+
 function balanceReportRows() {
   const rows = new Map();
   data.pharmacies.forEach((item) => rows.set(item.pharmacy_id, balanceRow(item.pharmacy_id)));
+  data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
+    getBalanceRow(rows, item.pharmacy_id).modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
+  });
   data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).omzet += saleOmzet(item));
   data.payments.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
   return [...rows.values()]
     .map((row) => ({ ...row, balance: row.omzet - row.paid }))
-    .filter((row) => row.omzet || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
+    .filter((row) => row.omzet || row.modal || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy));
 }
 
 function balanceRow(pharmacy_id) {
-  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), omzet: 0, paid: 0 };
+  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), omzet: 0, modal: 0, paid: 0 };
 }
 
 function getBalanceRow(rows, pharmacy_id) {
@@ -454,13 +632,16 @@ function savePharmacy(event) {
 
 function saveDelivery(event) {
   event.preventDefault();
+  if (!document.getElementById("deliveryPharmacy").value) return alert("Choose a pharmacy.");
   const lines = [...document.querySelectorAll(".delivery-line")].map((line) => ({
     product_id: line.querySelector(".delivery-product").value,
     quantity_sent: Number(line.querySelector(".delivery-quantity").value || 0),
   }));
   if (lines.some((line) => !line.product_id || line.quantity_sent <= 0)) return alert("Choose a product and quantity more than 0 for each line.");
+  const delivery_batch_id = makeId("delivery_batch");
   data.deliveries.push(...lines.map((line) => ({
     delivery_id: makeId("delivery"),
+    delivery_batch_id,
     date: textValue("deliveryDate"),
     pharmacy_id: document.getElementById("deliveryPharmacy").value,
     product_id: line.product_id,
@@ -476,6 +657,7 @@ function saveDelivery(event) {
 
 function saveSale(event) {
   event.preventDefault();
+  if (!document.getElementById("salesPharmacy").value) return alert("Choose a pharmacy.");
   const lines = [...document.querySelectorAll(".sales-line")].map((line) => ({
     product_id: line.querySelector(".sales-product").value,
     quantity_sold: Number(line.querySelector(".sales-quantity").value || 0),
@@ -580,6 +762,13 @@ function deleteById(listName, idKey, id) {
   renderAll();
 }
 
+function deleteDeliveryBatch(id) {
+  if (!confirm("Delete this delivery and all products inside it?")) return;
+  data.deliveries = data.deliveries.filter((row) => (row.delivery_batch_id || row.delivery_id) !== id);
+  saveData();
+  renderAll();
+}
+
 function exportBackup() {
   downloadJson(`herbal-consignment-backup-${today()}.json`, data);
 }
@@ -603,6 +792,51 @@ function importBackup(event) {
     }
   };
   reader.readAsText(file);
+}
+
+function loadDemoData() {
+  if (hasData() && !confirm("Replace current browser data with demo data?")) return;
+  data = demoData();
+  saveData();
+  setDefaultDates();
+  renderAll();
+  alert("Demo data loaded.");
+}
+
+function hasData() {
+  return ["products", "pharmacies", "deliveries", "sales", "payments"].some((key) => data[key].length);
+}
+
+function demoData() {
+  const products = [
+    { product_id: "demo_product_1", product_name: "Herbal Flu Relief", supplier_name: "Natura Herbs", purchase_price: 18000, selling_price: 30000, notes: "Fast moving item" },
+    { product_id: "demo_product_2", product_name: "Ginger Honey Syrup", supplier_name: "Natura Herbs", purchase_price: 22000, selling_price: 38000, notes: "Best for rainy season" },
+    { product_id: "demo_product_3", product_name: "Turmeric Capsules", supplier_name: "Sehat Alam", purchase_price: 35000, selling_price: 55000, notes: "30 capsules" },
+  ];
+  const pharmacies = [
+    { pharmacy_id: "demo_pharmacy_1", pharmacy_name: "Apotek Melati", address: "Jl. Melati No. 12", contact_person: "Ibu Sari", phone_number: "0812-0000-1111", notes: "Pays weekly" },
+    { pharmacy_id: "demo_pharmacy_2", pharmacy_name: "Apotek Sehat Jaya", address: "Jl. Sudirman No. 88", contact_person: "Pak Budi", phone_number: "0812-0000-2222", notes: "High traffic location" },
+  ];
+  return {
+    products,
+    pharmacies,
+    deliveries: [
+      { delivery_id: "demo_delivery_1", date: "2026-06-01", pharmacy_id: "demo_pharmacy_1", product_id: "demo_product_1", quantity_sent: 20, notes: "Initial consignment" },
+      { delivery_id: "demo_delivery_2", date: "2026-06-01", pharmacy_id: "demo_pharmacy_1", product_id: "demo_product_2", quantity_sent: 15, notes: "Initial consignment" },
+      { delivery_id: "demo_delivery_3", date: "2026-06-03", pharmacy_id: "demo_pharmacy_2", product_id: "demo_product_1", quantity_sent: 12, notes: "Front counter display" },
+      { delivery_id: "demo_delivery_4", date: "2026-06-03", pharmacy_id: "demo_pharmacy_2", product_id: "demo_product_3", quantity_sent: 10, notes: "Front counter display" },
+    ],
+    sales: [
+      { sales_id: "demo_sales_1", date: "2026-06-08", pharmacy_id: "demo_pharmacy_1", product_id: "demo_product_1", quantity_sold: 7, notes: "Week 1 report" },
+      { sales_id: "demo_sales_2", date: "2026-06-08", pharmacy_id: "demo_pharmacy_1", product_id: "demo_product_2", quantity_sold: 4, notes: "Week 1 report" },
+      { sales_id: "demo_sales_3", date: "2026-06-10", pharmacy_id: "demo_pharmacy_2", product_id: "demo_product_1", quantity_sold: 5, notes: "Counter sales" },
+      { sales_id: "demo_sales_4", date: "2026-06-10", pharmacy_id: "demo_pharmacy_2", product_id: "demo_product_3", quantity_sold: 3, notes: "Counter sales" },
+    ],
+    payments: [
+      { payment_id: "demo_payment_1", date: "2026-06-09", pharmacy_id: "demo_pharmacy_1", amount_paid: 150000, notes: "Partial payment" },
+      { payment_id: "demo_payment_2", date: "2026-06-12", pharmacy_id: "demo_pharmacy_2", amount_paid: 180000, notes: "Partial payment" },
+    ],
+  };
 }
 
 function downloadJson(filename, value) {
@@ -646,6 +880,10 @@ function wireEvents() {
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
   document.getElementById("addDeliveryLine").addEventListener("click", addDeliveryLine);
   document.getElementById("addSalesLine").addEventListener("click", addSalesLine);
+  document.getElementById("salesPharmacy").addEventListener("change", () => {
+    document.querySelectorAll(".sales-product").forEach((select) => select.value = "");
+    renderDropdowns();
+  });
   document.getElementById("cancelProductEdit").addEventListener("click", () => {
     document.getElementById("productForm").reset();
     endProductEdit();
@@ -669,28 +907,33 @@ function wireEvents() {
       target.closest(".sales-line").remove();
       updateSalesLineButtons();
     }
-    if (target.dataset.deleteDelivery) deleteById("deliveries", "delivery_id", target.dataset.deleteDelivery);
+    if (target.dataset.deleteDeliveryBatch) deleteDeliveryBatch(target.dataset.deleteDeliveryBatch);
     if (target.dataset.deleteSale) deleteById("sales", "sales_id", target.dataset.deleteSale);
     if (target.dataset.deletePayment) deleteById("payments", "payment_id", target.dataset.deletePayment);
   });
 
   document.getElementById("exportBackup").addEventListener("click", exportBackup);
   document.getElementById("importBackup").addEventListener("change", importBackup);
+  document.getElementById("loadDemoData").addEventListener("click", loadDemoData);
+  document.getElementById("dashboardMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
+  document.getElementById("reportMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
   document.getElementById("reportStartDate").addEventListener("change", renderAll);
   document.getElementById("reportEndDate").addEventListener("change", renderAll);
   document.getElementById("clearReportDates").addEventListener("click", () => {
     document.getElementById("reportStartDate").value = "";
     document.getElementById("reportEndDate").value = "";
-    renderAll();
+    setReportMonth("");
   });
   document.getElementById("exportStockCsv").addEventListener("click", () => {
     exportCsv(`stock-report-${today()}.csv`, stockReportRows(), [
       { label: "Pharmacy", value: (row) => row.pharmacy },
       { label: "Product", value: (row) => row.product },
+      { label: "Last stock", value: (row) => row.last_stock },
       { label: "Total sent", value: (row) => row.sent },
       { label: "Total sold", value: (row) => row.sold },
       { label: "Remaining", value: (row) => row.remaining },
       { label: "Total omzet", value: (row) => row.omzet },
+      { label: "Total modal", value: (row) => row.modal },
       { label: "Total profit", value: (row) => row.profit },
     ]);
   });
@@ -698,6 +941,7 @@ function wireEvents() {
     exportCsv(`balance-report-${today()}.csv`, balanceReportRows(), [
       { label: "Pharmacy", value: (row) => row.pharmacy },
       { label: "Total omzet", value: (row) => row.omzet },
+      { label: "Total modal", value: (row) => row.modal },
       { label: "Payment received", value: (row) => row.paid },
       { label: "Unpaid balance", value: (row) => row.balance },
     ]);

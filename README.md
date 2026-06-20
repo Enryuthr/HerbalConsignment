@@ -33,6 +33,7 @@ Use the **Backup** tab.
 
 - **Export Backup as JSON** downloads all products, pharmacies, deliveries, sales, and payments.
 - **Import Backup from JSON** restores data from a previous backup file.
+- **Load demo data** fills the browser with sample records so you can preview a non-empty app.
 
 Make regular backups before clearing browser data, changing devices, or reinstalling the browser.
 
