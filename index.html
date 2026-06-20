@@ -188,14 +188,22 @@
             Pharmacy *
             <select id="salesPharmacy" required></select>
           </label>
-          <label>
-            Product *
-            <select id="salesProduct" required></select>
-          </label>
-          <label>
-            Quantity sold *
-            <input id="quantitySold" type="number" min="1" step="1" required>
-          </label>
+          <div class="wide">
+            <div id="salesLines" class="sales-lines">
+              <div class="sales-line">
+                <label>
+                  Product *
+                  <select class="sales-product" required></select>
+                </label>
+                <label>
+                  Quantity sold *
+                  <input class="sales-quantity" type="number" min="1" step="1" required>
+                </label>
+                <button type="button" class="secondary remove-sales-line" data-remove-sales-line>Remove</button>
+              </div>
+            </div>
+            <button type="button" class="secondary" id="addSalesLine">Add product</button>
+          </div>
           <label class="wide">
             Notes
             <textarea id="salesNotes"></textarea>

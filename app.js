@@ -102,7 +102,9 @@ function renderDropdowns() {
   document.querySelectorAll(".delivery-product").forEach((select) => {
     fillSelectElement(select, data.products, "product_id", "product_name", "Choose product");
   });
-  fillSelect("salesProduct", data.products, "product_id", "product_name", "Choose product");
+  document.querySelectorAll(".sales-product").forEach((select) => {
+    fillSelectElement(select, data.products, "product_id", "product_name", "Choose product");
+  });
 }
 
 function fillSelect(id, rows, valueKey, labelKey, placeholder) {
@@ -148,6 +150,36 @@ function resetDeliveryLines() {
 
 function updateDeliveryLineButtons() {
   const buttons = document.querySelectorAll(".remove-delivery-line");
+  buttons.forEach((button) => button.hidden = buttons.length === 1);
+}
+
+function addSalesLine() {
+  const line = document.createElement("div");
+  line.className = "sales-line";
+  line.innerHTML = `
+    <label>
+      Product *
+      <select class="sales-product" required></select>
+    </label>
+    <label>
+      Quantity sold *
+      <input class="sales-quantity" type="number" min="1" step="1" required>
+    </label>
+    <button type="button" class="secondary remove-sales-line" data-remove-sales-line>Remove</button>
+  `;
+  document.getElementById("salesLines").appendChild(line);
+  renderDropdowns();
+  updateSalesLineButtons();
+}
+
+function resetSalesLines() {
+  const lines = document.getElementById("salesLines");
+  lines.innerHTML = "";
+  addSalesLine();
+}
+
+function updateSalesLineButtons() {
+  const buttons = document.querySelectorAll(".remove-sales-line");
   buttons.forEach((button) => button.hidden = buttons.length === 1);
 }
 
@@ -444,18 +476,22 @@ function saveDelivery(event) {
 
 function saveSale(event) {
   event.preventDefault();
-  const quantity = numberValue("quantitySold");
-  if (quantity <= 0) return alert("Quantity sold must be more than 0.");
-  data.sales.push({
+  const lines = [...document.querySelectorAll(".sales-line")].map((line) => ({
+    product_id: line.querySelector(".sales-product").value,
+    quantity_sold: Number(line.querySelector(".sales-quantity").value || 0),
+  }));
+  if (lines.some((line) => !line.product_id || line.quantity_sold <= 0)) return alert("Choose a product and quantity more than 0 for each line.");
+  data.sales.push(...lines.map((line) => ({
     sales_id: makeId("sales"),
     date: textValue("salesDate"),
     pharmacy_id: document.getElementById("salesPharmacy").value,
-    product_id: document.getElementById("salesProduct").value,
-    quantity_sold: quantity,
+    product_id: line.product_id,
+    quantity_sold: line.quantity_sold,
     notes: textValue("salesNotes"),
-  });
+  })));
   saveData();
   event.target.reset();
+  resetSalesLines();
   setDefaultDates();
   renderAll();
 }
@@ -609,6 +645,7 @@ function wireEvents() {
   document.getElementById("salesForm").addEventListener("submit", saveSale);
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
   document.getElementById("addDeliveryLine").addEventListener("click", addDeliveryLine);
+  document.getElementById("addSalesLine").addEventListener("click", addSalesLine);
   document.getElementById("cancelProductEdit").addEventListener("click", () => {
     document.getElementById("productForm").reset();
     endProductEdit();
@@ -627,6 +664,10 @@ function wireEvents() {
     if ("removeDeliveryLine" in target.dataset) {
       target.closest(".delivery-line").remove();
       updateDeliveryLineButtons();
+    }
+    if ("removeSalesLine" in target.dataset) {
+      target.closest(".sales-line").remove();
+      updateSalesLineButtons();
     }
     if (target.dataset.deleteDelivery) deleteById("deliveries", "delivery_id", target.dataset.deleteDelivery);
     if (target.dataset.deleteSale) deleteById("sales", "sales_id", target.dataset.deleteSale);
@@ -666,4 +707,5 @@ function wireEvents() {
 wireEvents();
 setDefaultDates();
 updateDeliveryLineButtons();
+updateSalesLineButtons();
 renderAll();

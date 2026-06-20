@@ -189,13 +189,15 @@ textarea {
   padding: 12px;
 }
 
-.delivery-lines {
+.delivery-lines,
+.sales-lines {
   display: grid;
   gap: 10px;
   margin-bottom: 10px;
 }
 
-.delivery-line {
+.delivery-line,
+.sales-line {
   align-items: end;
   display: grid;
   grid-template-columns: 1fr 160px auto;
@@ -279,7 +281,8 @@ td.actions button {
     grid-template-columns: 1fr;
   }
 
-  .delivery-line {
+  .delivery-line,
+  .sales-line {
     grid-template-columns: 1fr;
   }
 
