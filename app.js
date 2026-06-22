@@ -277,6 +277,7 @@ function totals() {
     sent: sum(stockRows, "sent"),
     sold: sum(stockRows, "sold"),
     remaining: sum(stockRows, "remaining"),
+    inventory_value: sum(stockRows, "inventory_value"),
     omzet: sum(stockRows, "omzet"),
     modal: sum(stockRows, "modal"),
     profit: sum(stockRows, "profit"),
@@ -287,10 +288,13 @@ function totals() {
 function renderDashboard() {
   const t = totals();
   const month = textValue("reportMonth");
+  const top = topSellingProduct();
   const cards = [
     [month ? "Stock sent this month" : "Total stock sent", t.sent],
     [month ? "Sold this month" : "Total quantity sold", t.sold],
+    ["Top selling product", top ? `${top.product}: ${top.quantity}` : "No sales yet"],
     ["Total remaining stock", t.remaining],
+    ["Inventory selling value", money(t.inventory_value)],
     ["Total omzet / revenue", money(t.omzet)],
     ["Total modal", money(t.modal)],
     ["Total profit", money(t.profit)],
@@ -299,6 +303,15 @@ function renderDashboard() {
   document.getElementById("dashboardCards").innerHTML = cards
     .map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`)
     .join("");
+}
+
+function topSellingProduct() {
+  const totals = new Map();
+  data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
+    totals.set(item.product_id, (totals.get(item.product_id) || 0) + item.quantity_sold);
+  });
+  const [product_id, quantity] = [...totals.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+  return product_id ? { product: productName(product_id), quantity } : null;
 }
 
 function setReportMonth(value) {
@@ -310,7 +323,7 @@ function setReportMonth(value) {
 function renderProducts() {
   renderRows(
     "productTable",
-    data.products,
+    filterRows(data.products, "productSearch", ["product_id", "product_name", "supplier_name", "notes"]),
     (item) => `
       <td>${escapeHtml(item.product_id)}</td>
       <td>${escapeHtml(item.product_name)}</td>
@@ -329,7 +342,7 @@ function renderProducts() {
 function renderPharmacies() {
   renderRows(
     "pharmacyTable",
-    data.pharmacies,
+    filterRows(data.pharmacies, "pharmacySearch", ["pharmacy_id", "pharmacy_name", "address", "contact_person", "phone_number", "notes"]),
     (item) => `
       <td>${escapeHtml(item.pharmacy_id)}</td>
       <td>${escapeHtml(item.pharmacy_name)}</td>
@@ -343,6 +356,12 @@ function renderPharmacies() {
       </td>
     `
   );
+}
+
+function filterRows(rows, inputId, keys) {
+  const query = textValue(inputId).toLowerCase();
+  if (!query) return rows;
+  return rows.filter((row) => keys.some((key) => String(row[key] || "").toLowerCase().includes(query)));
 }
 
 function renderDeliveries() {
@@ -420,6 +439,7 @@ function renderReports() {
       <td>${item.sent}</td>
       <td>${item.sold}</td>
       <td>${item.remaining}</td>
+      <td>${money(item.inventory_value)}</td>
       <td>${money(item.omzet)}</td>
       <td>${money(item.modal)}</td>
       <td>${money(item.profit)}</td>
@@ -430,6 +450,7 @@ function renderReports() {
     balanceReportRows(),
     (item) => `
       <td>${escapeHtml(item.pharmacy)}</td>
+      <td>${money(item.inventory_value)}</td>
       <td>${money(item.omzet)}</td>
       <td>${money(item.modal)}</td>
       <td>${money(item.paid)}</td>
@@ -492,7 +513,7 @@ function stockReportRows() {
     row.profit += saleProfit(item);
   });
   return [...rows.values()]
-    .map((row) => ({ ...row, remaining: row.last_stock + row.sent - row.sold }))
+    .map(withRemainingAndInventoryValue)
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product));
 }
 
@@ -518,9 +539,18 @@ function monthlyStockReportRows(month) {
     }
   });
   return [...rows.values()]
-    .map((row) => ({ ...row, remaining: row.last_stock + row.sent - row.sold }))
+    .map(withRemainingAndInventoryValue)
     .filter((row) => row.last_stock || row.sent || row.sold)
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product));
+}
+
+function withRemainingAndInventoryValue(row) {
+  const remaining = row.last_stock + row.sent - row.sold;
+  return {
+    ...row,
+    remaining,
+    inventory_value: remaining * (productById(row.product_id)?.selling_price || 0),
+  };
 }
 
 function getStockRow(rows, pharmacy_id, product_id) {
@@ -534,6 +564,7 @@ function getStockRow(rows, pharmacy_id, product_id) {
       last_stock: 0,
       sent: 0,
       sold: 0,
+      inventory_value: 0,
       omzet: 0,
       modal: 0,
       profit: 0,
@@ -561,6 +592,7 @@ function productStockAtPharmacy(pharmacy_id, product_id) {
 function balanceReportRows() {
   const rows = new Map();
   data.pharmacies.forEach((item) => rows.set(item.pharmacy_id, balanceRow(item.pharmacy_id)));
+  stockReportRows().forEach((item) => getBalanceRow(rows, item.pharmacy_id).inventory_value += item.inventory_value);
   data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     getBalanceRow(rows, item.pharmacy_id).modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
   });
@@ -568,12 +600,12 @@ function balanceReportRows() {
   data.payments.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
   return [...rows.values()]
     .map((row) => ({ ...row, balance: row.omzet - row.paid }))
-    .filter((row) => row.omzet || row.modal || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
+    .filter((row) => row.inventory_value || row.omzet || row.modal || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy));
 }
 
 function balanceRow(pharmacy_id) {
-  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), omzet: 0, modal: 0, paid: 0 };
+  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), inventory_value: 0, omzet: 0, modal: 0, paid: 0 };
 }
 
 function getBalanceRow(rows, pharmacy_id) {
@@ -878,6 +910,8 @@ function wireEvents() {
   document.getElementById("deliveryForm").addEventListener("submit", saveDelivery);
   document.getElementById("salesForm").addEventListener("submit", saveSale);
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
+  document.getElementById("productSearch").addEventListener("input", renderProducts);
+  document.getElementById("pharmacySearch").addEventListener("input", renderPharmacies);
   document.getElementById("addDeliveryLine").addEventListener("click", addDeliveryLine);
   document.getElementById("addSalesLine").addEventListener("click", addSalesLine);
   document.getElementById("salesPharmacy").addEventListener("change", () => {
@@ -932,6 +966,7 @@ function wireEvents() {
       { label: "Total sent", value: (row) => row.sent },
       { label: "Total sold", value: (row) => row.sold },
       { label: "Remaining", value: (row) => row.remaining },
+      { label: "Inventory value", value: (row) => row.inventory_value },
       { label: "Total omzet", value: (row) => row.omzet },
       { label: "Total modal", value: (row) => row.modal },
       { label: "Total profit", value: (row) => row.profit },
@@ -940,6 +975,7 @@ function wireEvents() {
   document.getElementById("exportBalanceCsv").addEventListener("click", () => {
     exportCsv(`balance-report-${today()}.csv`, balanceReportRows(), [
       { label: "Pharmacy", value: (row) => row.pharmacy },
+      { label: "Inventory value", value: (row) => row.inventory_value },
       { label: "Total omzet", value: (row) => row.omzet },
       { label: "Total modal", value: (row) => row.modal },
       { label: "Payment received", value: (row) => row.paid },

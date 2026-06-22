@@ -221,6 +221,10 @@ textarea {
   padding: 12px;
 }
 
+.table-search {
+  margin: 0 0 12px;
+}
+
 .delivery-lines,
 .sales-lines {
   display: grid;
