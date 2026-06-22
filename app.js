@@ -8,7 +8,18 @@ const emptyData = () => ({
   payments: [],
 });
 
-let data = loadData();
+const ID_CONFIG = {
+  product: ["products", "product_id", "P"],
+  pharmacy: ["pharmacies", "pharmacy_id", "PH"],
+  delivery: ["deliveries", "delivery_id", "D"],
+  delivery_batch: ["deliveries", "delivery_batch_id", "DB"],
+  sales: ["sales", "sales_id", "S"],
+  payment: ["payments", "payment_id", "PAY"],
+};
+
+const loadedData = migrateReadableIds(loadData());
+let data = loadedData.data;
+if (loadedData.changed) saveData();
 
 const rupiah = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -28,11 +39,60 @@ function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+function migrateReadableIds(data) {
+  let changed = false;
+  const productMap = migrateIds(data.products, "product_id", "P");
+  const pharmacyMap = migrateIds(data.pharmacies, "pharmacy_id", "PH");
+  ["deliveries", "sales"].forEach((listName) => {
+    data[listName].forEach((row) => {
+      if (productMap.has(row.product_id)) row.product_id = productMap.get(row.product_id);
+      if (pharmacyMap.has(row.pharmacy_id)) row.pharmacy_id = pharmacyMap.get(row.pharmacy_id);
+    });
+  });
+  data.payments.forEach((row) => {
+    if (pharmacyMap.has(row.pharmacy_id)) row.pharmacy_id = pharmacyMap.get(row.pharmacy_id);
+  });
+  if (productMap.size || pharmacyMap.size) changed = true;
+  return { data, changed };
+}
+
+function migrateIds(rows, key, code) {
+  const map = new Map();
+  const used = new Set(rows.map((row) => row[key]).filter((id) => isReadableId(id, code)));
+  let number = maxReadableIdNumber(used, code);
+  rows.forEach((row) => {
+    if (isReadableId(row[key], code)) return;
+    const oldId = row[key];
+    let id;
+    do {
+      id = `${code}${String(++number).padStart(3, "0")}`;
+    } while (used.has(id));
+    row[key] = id;
+    used.add(id);
+    if (oldId) map.set(oldId, id);
+  });
+  return map;
+}
+
 function makeId(prefix) {
-  const id = globalThis.crypto?.randomUUID
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}_${id}`;
+  const config = ID_CONFIG[prefix];
+  if (!config) return `${prefix}_${Date.now()}`;
+  const [listName, key, code] = config;
+  const used = new Set(data[listName].map((row) => row[key]).filter(Boolean));
+  let number = maxReadableIdNumber(used, code);
+  let id;
+  do {
+    id = `${code}${String(++number).padStart(3, "0")}`;
+  } while (used.has(id));
+  return id;
+}
+
+function isReadableId(id, code) {
+  return new RegExp(`^${code}\\d+$`).test(String(id || ""));
+}
+
+function maxReadableIdNumber(ids, code) {
+  return Math.max(0, ...[...ids].map((id) => Number(String(id).match(new RegExp(`^${code}(\\d+)$`))?.[1] || 0)));
 }
 
 function today() {
@@ -59,11 +119,12 @@ function reportDateNote() {
   const month = textValue("reportMonth");
   const start = textValue("reportStartDate");
   const end = textValue("reportEndDate");
-  if (month) return `Showing stock and balance up to ${month}.`;
-  if (start && end) return `Showing ${start} to ${end}.`;
-  if (start) return `Showing from ${start}.`;
-  if (end) return `Showing until ${end}.`;
-  return "Showing all dates.";
+  const pharmacy = reportPharmacyId() ? ` for ${pharmacyName(reportPharmacyId())}` : "";
+  if (month) return `Showing stock and balance up to ${month}${pharmacy}.`;
+  if (start && end) return `Showing ${start} to ${end}${pharmacy}.`;
+  if (start) return `Showing from ${start}${pharmacy}.`;
+  if (end) return `Showing until ${end}${pharmacy}.`;
+  return `Showing all dates${pharmacy}.`;
 }
 
 function productName(id) {
@@ -103,6 +164,7 @@ function renderDropdowns() {
   fillSelect("deliveryPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
   fillSelect("salesPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
   fillSelect("paymentPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
+  fillSelect("reportPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "All pharmacies", true);
   document.querySelectorAll(".delivery-product").forEach((select) => {
     fillSelectElement(select, data.products, "product_id", "product_name", "Choose product", true);
   });
@@ -271,8 +333,8 @@ function updateSalesLineButtons() {
 }
 
 function totals() {
-  const stockRows = stockReportRows();
-  const balanceRows = balanceReportRows();
+  const stockRows = stockReportRows(false);
+  const balanceRows = balanceReportRows(false);
   return {
     sent: sum(stockRows, "sent"),
     sold: sum(stockRows, "sold"),
@@ -497,9 +559,9 @@ function saleProfit(sale) {
   return sale.quantity_sold * ((product?.selling_price || 0) - (product?.purchase_price || 0));
 }
 
-function stockReportRows() {
+function stockReportRows(filterPharmacy = true) {
   const month = textValue("reportMonth");
-  if (month) return monthlyStockReportRows(month);
+  if (month) return filterPharmacy ? filterByReportPharmacy(monthlyStockReportRows(month)) : monthlyStockReportRows(month);
   const rows = new Map();
   data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     const row = getStockRow(rows, item.pharmacy_id, item.product_id);
@@ -514,6 +576,7 @@ function stockReportRows() {
   });
   return [...rows.values()]
     .map(withRemainingAndInventoryValue)
+    .filter((row) => !filterPharmacy || !reportPharmacyId() || row.pharmacy_id === reportPharmacyId())
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product));
 }
 
@@ -553,6 +616,15 @@ function withRemainingAndInventoryValue(row) {
   };
 }
 
+function reportPharmacyId() {
+  return document.getElementById("reportPharmacy")?.value || "";
+}
+
+function filterByReportPharmacy(rows) {
+  const pharmacy_id = reportPharmacyId();
+  return pharmacy_id ? rows.filter((row) => row.pharmacy_id === pharmacy_id) : rows;
+}
+
 function getStockRow(rows, pharmacy_id, product_id) {
   const key = `${pharmacy_id}|${product_id}`;
   if (!rows.has(key)) {
@@ -589,10 +661,10 @@ function productStockAtPharmacy(pharmacy_id, product_id) {
   return sent - sold;
 }
 
-function balanceReportRows() {
+function balanceReportRows(filterPharmacy = true) {
   const rows = new Map();
   data.pharmacies.forEach((item) => rows.set(item.pharmacy_id, balanceRow(item.pharmacy_id)));
-  stockReportRows().forEach((item) => getBalanceRow(rows, item.pharmacy_id).inventory_value += item.inventory_value);
+  stockReportRows(filterPharmacy).forEach((item) => getBalanceRow(rows, item.pharmacy_id).inventory_value += item.inventory_value);
   data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     getBalanceRow(rows, item.pharmacy_id).modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
   });
@@ -600,6 +672,7 @@ function balanceReportRows() {
   data.payments.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
   return [...rows.values()]
     .map((row) => ({ ...row, balance: row.omzet - row.paid }))
+    .filter((row) => !filterPharmacy || !reportPharmacyId() || row.pharmacy_id === reportPharmacyId())
     .filter((row) => row.inventory_value || row.omzet || row.modal || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy));
 }
@@ -951,6 +1024,7 @@ function wireEvents() {
   document.getElementById("loadDemoData").addEventListener("click", loadDemoData);
   document.getElementById("dashboardMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
   document.getElementById("reportMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
+  document.getElementById("reportPharmacy").addEventListener("change", renderAll);
   document.getElementById("reportStartDate").addEventListener("change", renderAll);
   document.getElementById("reportEndDate").addEventListener("change", renderAll);
   document.getElementById("clearReportDates").addEventListener("click", () => {
