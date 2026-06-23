@@ -1,49 +1,47 @@
-# Herbal Consignment Tracker
+# Herbal Consignment
 
-Small local web app for tracking herbal products consigned to pharmacies.
+React + Supabase app for tracking herbal consignment stock, sales, payments, expenses, and monthly reports.
 
-## What It Does
+## Setup
 
-- Saves product master data once.
-- Saves pharmacy master data once.
-- Records one or more product deliveries to a pharmacy.
-- Records one or more product sales reports from a pharmacy.
-- Records payments received from pharmacies.
-- Shows dashboard totals, stock reports, balance reports, JSON backup, JSON import, and CSV exports.
-
-## How To Open
-
-Open `index.html` in a browser.
-
-No server, install step, account, or internet connection is needed.
-
-## How Data Is Stored
-
-All data is saved in the browser using `localStorage` under the key:
-
-```text
-herbal_consignment_v1
+```bash
+npm install
+cp .env.example .env
 ```
 
-This means data stays on the same browser and same device.
+Fill `.env`:
 
-## Backup
+```text
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+```
 
-Use the **Backup** tab.
+Use the base project URL only, without `/rest/v1/`.
 
-- **Export Backup as JSON** downloads all products, pharmacies, deliveries, sales, and payments.
-- **Import Backup from JSON** restores data from a previous backup file.
-- **Load demo data** fills the browser with sample records so you can preview a non-empty app.
+In Supabase, run `supabase/schema.sql` in the SQL editor once. The schema enables RLS so signed-in users only see their own data.
 
-Make regular backups before clearing browser data, changing devices, or reinstalling the browser.
+## Run
 
-## localStorage Limitations
+```bash
+npm run dev
+```
 
-- Data is only on one device and one browser.
-- Clearing browser data can delete the records.
-- It is not good for multiple users editing at the same time.
-- Storage size is limited compared with a real database.
+## Check
 
-## Future Upgrade Idea
+```bash
+npm test
+npm run build
+```
 
-For version 2, move storage to Supabase or Firebase so data can sync across devices, support login, and be safer for daily business use.
+## Vercel
+
+Add the same env vars in Vercel:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+Then deploy the linked `herbal-consignment` project.
+
+## Migration
+
+After signing in, the app checks the old browser key `herbal_consignment_v1`. If old local data exists and Supabase is empty, it offers to import it. JSON backup import/export is still available in the Backup tab.
