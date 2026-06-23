@@ -6,6 +6,7 @@ const emptyData = () => ({
   deliveries: [],
   sales: [],
   payments: [],
+  expenses: [],
 });
 
 const ID_CONFIG = {
@@ -15,6 +16,7 @@ const ID_CONFIG = {
   delivery_batch: ["deliveries", "delivery_batch_id", "DB"],
   sales: ["sales", "sales_id", "S"],
   payment: ["payments", "payment_id", "PAY"],
+  expense: ["expenses", "expense_id", "E"],
 };
 
 const loadedData = migrateReadableIds(loadData());
@@ -144,7 +146,7 @@ function money(value) {
 }
 
 function setDefaultDates() {
-  ["deliveryDate", "salesDate", "paymentDate"].forEach((id) => {
+  ["deliveryDate", "salesDate", "paymentDate", "expenseDate"].forEach((id) => {
     document.getElementById(id).value = today();
   });
 }
@@ -157,12 +159,15 @@ function renderAll() {
   renderDeliveries();
   renderSales();
   renderPayments();
+  renderExpenses();
   renderReports();
 }
 
 function renderDropdowns() {
   fillSelect("deliveryPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
+  fillSelect("deliveryFilterPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "All pharmacies", true);
   fillSelect("salesPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy", true);
+  fillSelect("salesFilterPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "All pharmacies", true);
   fillSelect("paymentPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "Choose pharmacy");
   fillSelect("reportPharmacy", data.pharmacies, "pharmacy_id", "pharmacy_name", "All pharmacies", true);
   document.querySelectorAll(".delivery-product").forEach((select) => {
@@ -342,7 +347,12 @@ function totals() {
     inventory_value: sum(stockRows, "inventory_value"),
     omzet: sum(stockRows, "omzet"),
     modal: sum(stockRows, "modal"),
-    profit: sum(stockRows, "profit"),
+    modal_delivered: sum(stockRows, "modal_delivered"),
+    modal_sold: sum(stockRows, "modal_sold"),
+    modal_remaining: sum(stockRows, "modal_remaining"),
+    gross_profit: sum(stockRows, "profit"),
+    expenses: totalExpenses(),
+    profit: sum(stockRows, "profit") - totalExpenses(),
     unpaid: sum(balanceRows, "balance"),
   };
 }
@@ -359,21 +369,121 @@ function renderDashboard() {
     ["Inventory selling value", money(t.inventory_value)],
     ["Total omzet / revenue", money(t.omzet)],
     ["Total modal", money(t.modal)],
-    ["Total profit", money(t.profit)],
+    ["Modal delivered", money(t.modal_delivered)],
+    ["Modal sold", money(t.modal_sold)],
+    ["Modal remaining", money(t.modal_remaining)],
+    ["Gross profit", money(t.gross_profit)],
+    ["Total expenses", money(t.expenses)],
+    ["Net profit", money(t.profit)],
     ["Total unpaid balance", money(t.unpaid)],
   ];
   document.getElementById("dashboardCards").innerHTML = cards
     .map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`)
     .join("");
+  renderDashboardInsight();
+}
+
+function totalExpenses() {
+  return data.expenses.filter((item) => dateInReportRange(item.date)).reduce((total, item) => total + item.amount, 0);
 }
 
 function topSellingProduct() {
+  const top = topSellingProducts(1)[0];
+  return top ? { product: top.label, quantity: top.value } : null;
+}
+
+function topSellingProducts(limit = 10) {
   const totals = new Map();
   data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     totals.set(item.product_id, (totals.get(item.product_id) || 0) + item.quantity_sold);
   });
-  const [product_id, quantity] = [...totals.entries()].sort((a, b) => b[1] - a[1])[0] || [];
-  return product_id ? { product: productName(product_id), quantity } : null;
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([product_id, quantity]) => ({ label: productName(product_id), value: quantity }));
+}
+
+function renderDashboardInsight() {
+  const insight = dashboardInsight();
+  document.getElementById("dashboardInsightTitle").textContent = insight.title;
+  renderBarRows(insight.rows, insight.formatValue);
+}
+
+function dashboardInsight() {
+  return {
+    topProducts: { title: "Top Selling Products", rows: topSellingProducts(), formatValue: (value) => value },
+    lowStock: { title: "Low Stock Products", rows: lowStockProducts(), formatValue: (value) => value },
+    topUnpaid: { title: "Top Unpaid Pharmacies", rows: topUnpaidPharmacies(), formatValue: money },
+    monthlyOmzet: { title: "Monthly Omzet Trend", rows: monthlyOmzetTrend(), formatValue: money },
+    expenseBreakdown: { title: "Expense Breakdown", rows: expenseBreakdown(), formatValue: money },
+    bestPharmacy: { title: "Best Pharmacy", rows: bestPharmacies(), formatValue: money },
+    slowMoving: { title: "Slow Moving Stock", rows: slowMovingStock(), formatValue: (value) => value },
+  }[document.getElementById("dashboardInsight").value];
+}
+
+function renderBarRows(rows, formatValue) {
+  const max = Math.max(1, ...rows.map((row) => row.value));
+  document.getElementById("dashboardInsightBody").innerHTML = rows.length
+    ? rows.map((row) => `
+      <div class="bar-row">
+        <span>${escapeHtml(row.label)}</span>
+        <div class="bar-track"><div class="bar-fill" style="width: ${(row.value / max) * 100}%"></div></div>
+        <strong>${formatValue(row.value)}</strong>
+      </div>
+    `).join("")
+    : `<p class="muted">No data yet.</p>`;
+}
+
+function lowStockProducts() {
+  return stockReportRows(false)
+    .filter((row) => row.remaining > 0 && row.remaining <= 5)
+    .sort((a, b) => a.remaining - b.remaining)
+    .slice(0, 10)
+    .map((row) => ({ label: `${row.product} (${row.pharmacy})`, value: row.remaining }));
+}
+
+function topUnpaidPharmacies() {
+  return balanceReportRows(false)
+    .filter((row) => row.balance > 0)
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 10)
+    .map((row) => ({ label: row.pharmacy, value: row.balance }));
+}
+
+function monthlyOmzetTrend() {
+  const rows = new Map();
+  data.sales.forEach((sale) => rows.set(sale.date.slice(0, 7), (rows.get(sale.date.slice(0, 7)) || 0) + saleOmzet(sale)));
+  return [...rows.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-6)
+    .map(([label, value]) => ({ label, value }));
+}
+
+function expenseBreakdown() {
+  const rows = new Map();
+  data.expenses.filter((item) => dateInReportRange(item.date)).forEach((item) => {
+    rows.set(item.category, (rows.get(item.category) || 0) + item.amount);
+  });
+  return [...rows.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+}
+
+function bestPharmacies() {
+  const rows = new Map();
+  data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
+    rows.set(item.pharmacy_id, (rows.get(item.pharmacy_id) || 0) + saleOmzet(item));
+  });
+  return [...rows.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([pharmacy_id, value]) => ({ label: pharmacyName(pharmacy_id), value }));
+}
+
+function slowMovingStock() {
+  return stockReportRows(false)
+    .filter((row) => row.remaining > 0 && row.sold === 0)
+    .sort((a, b) => b.remaining - a.remaining)
+    .slice(0, 10)
+    .map((row) => ({ label: `${row.product} (${row.pharmacy})`, value: row.remaining }));
 }
 
 function setReportMonth(value) {
@@ -429,13 +539,16 @@ function filterRows(rows, inputId, keys) {
 function renderDeliveries() {
   renderRows(
     "deliveryTable",
-    deliveryRows(),
+    deliveryRows().filter((row) => !textValue("deliveryFilterPharmacy") || row.pharmacy_id === textValue("deliveryFilterPharmacy")),
     (batch) => `
       <td>${batch.date}</td>
       <td>${escapeHtml(pharmacyName(batch.pharmacy_id))}</td>
       <td class="delivery-items">${batch.items.map((item) => `<div>${escapeHtml(productName(item.product_id))}: <strong>${item.quantity_sent}</strong></div>`).join("")}</td>
       <td>${escapeHtml(batch.notes)}</td>
-      <td class="actions"><button type="button" class="danger" data-delete-delivery-batch="${batch.batch_id}">Delete</button></td>
+      <td class="actions">
+        <button type="button" data-edit-delivery-batch="${batch.batch_id}">Edit</button>
+        <button type="button" class="danger" data-delete-delivery-batch="${batch.batch_id}">Delete</button>
+      </td>
     `
   );
 }
@@ -461,7 +574,7 @@ function deliveryRows() {
 function renderSales() {
   renderRows(
     "salesTable",
-    data.sales,
+    data.sales.filter((row) => !textValue("salesFilterPharmacy") || row.pharmacy_id === textValue("salesFilterPharmacy")),
     (item) => `
       <td>${item.date}</td>
       <td>${escapeHtml(pharmacyName(item.pharmacy_id))}</td>
@@ -489,6 +602,20 @@ function renderPayments() {
   );
 }
 
+function renderExpenses() {
+  renderRows(
+    "expenseTable",
+    data.expenses,
+    (item) => `
+      <td>${item.date}</td>
+      <td>${escapeHtml(item.category)}</td>
+      <td>${money(item.amount)}</td>
+      <td>${escapeHtml(item.notes)}</td>
+      <td class="actions"><button type="button" class="danger" data-delete-expense="${item.expense_id}">Delete</button></td>
+    `
+  );
+}
+
 function renderReports() {
   document.getElementById("reportDateNote").textContent = reportDateNote();
   renderRows(
@@ -504,6 +631,9 @@ function renderReports() {
       <td>${money(item.inventory_value)}</td>
       <td>${money(item.omzet)}</td>
       <td>${money(item.modal)}</td>
+      <td>${money(item.modal_delivered)}</td>
+      <td>${money(item.modal_sold)}</td>
+      <td>${money(item.modal_remaining)}</td>
       <td>${money(item.profit)}</td>
     `
   );
@@ -515,6 +645,9 @@ function renderReports() {
       <td>${money(item.inventory_value)}</td>
       <td>${money(item.omzet)}</td>
       <td>${money(item.modal)}</td>
+      <td>${money(item.modal_delivered)}</td>
+      <td>${money(item.modal_sold)}</td>
+      <td>${money(item.modal_remaining)}</td>
       <td>${money(item.paid)}</td>
       <td>${money(item.balance)}</td>
     `
@@ -566,7 +699,6 @@ function stockReportRows(filterPharmacy = true) {
   data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     const row = getStockRow(rows, item.pharmacy_id, item.product_id);
     row.sent += item.quantity_sent;
-    row.modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
   });
   data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => {
     const row = getStockRow(rows, item.pharmacy_id, item.product_id);
@@ -589,7 +721,6 @@ function monthlyStockReportRows(month) {
     if (item.date < start) row.last_stock += item.quantity_sent;
     else {
       row.sent += item.quantity_sent;
-      row.modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
     }
   });
   data.sales.filter((item) => item.date <= end).forEach((item) => {
@@ -609,10 +740,16 @@ function monthlyStockReportRows(month) {
 
 function withRemainingAndInventoryValue(row) {
   const remaining = row.last_stock + row.sent - row.sold;
+  const product = productById(row.product_id);
+  const purchasePrice = product?.purchase_price || 0;
   return {
     ...row,
     remaining,
-    inventory_value: remaining * (productById(row.product_id)?.selling_price || 0),
+    modal: (row.last_stock + row.sent) * purchasePrice,
+    modal_delivered: row.sent * purchasePrice,
+    modal_sold: row.sold * purchasePrice,
+    modal_remaining: remaining * purchasePrice,
+    inventory_value: remaining * (product?.selling_price || 0),
   };
 }
 
@@ -639,6 +776,9 @@ function getStockRow(rows, pharmacy_id, product_id) {
       inventory_value: 0,
       omzet: 0,
       modal: 0,
+      modal_delivered: 0,
+      modal_sold: 0,
+      modal_remaining: 0,
       profit: 0,
     });
   }
@@ -664,21 +804,25 @@ function productStockAtPharmacy(pharmacy_id, product_id) {
 function balanceReportRows(filterPharmacy = true) {
   const rows = new Map();
   data.pharmacies.forEach((item) => rows.set(item.pharmacy_id, balanceRow(item.pharmacy_id)));
-  stockReportRows(filterPharmacy).forEach((item) => getBalanceRow(rows, item.pharmacy_id).inventory_value += item.inventory_value);
-  data.deliveries.filter((item) => dateInReportRange(item.date)).forEach((item) => {
-    getBalanceRow(rows, item.pharmacy_id).modal += item.quantity_sent * (productById(item.product_id)?.purchase_price || 0);
+  stockReportRows(filterPharmacy).forEach((item) => {
+    const row = getBalanceRow(rows, item.pharmacy_id);
+    row.inventory_value += item.inventory_value;
+    row.modal += item.modal;
+    row.modal_delivered += item.modal_delivered;
+    row.modal_sold += item.modal_sold;
+    row.modal_remaining += item.modal_remaining;
   });
   data.sales.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).omzet += saleOmzet(item));
   data.payments.filter((item) => dateInReportRange(item.date)).forEach((item) => getBalanceRow(rows, item.pharmacy_id).paid += item.amount_paid);
   return [...rows.values()]
     .map((row) => ({ ...row, balance: row.omzet - row.paid }))
     .filter((row) => !filterPharmacy || !reportPharmacyId() || row.pharmacy_id === reportPharmacyId())
-    .filter((row) => row.inventory_value || row.omzet || row.modal || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
+    .filter((row) => row.inventory_value || row.omzet || row.modal || row.modal_delivered || row.modal_sold || row.modal_remaining || row.paid || data.pharmacies.some((p) => p.pharmacy_id === row.pharmacy_id))
     .sort((a, b) => a.pharmacy.localeCompare(b.pharmacy));
 }
 
 function balanceRow(pharmacy_id) {
-  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), inventory_value: 0, omzet: 0, modal: 0, paid: 0 };
+  return { pharmacy_id, pharmacy: pharmacyName(pharmacy_id), inventory_value: 0, omzet: 0, modal: 0, modal_delivered: 0, modal_sold: 0, modal_remaining: 0, paid: 0 };
 }
 
 function getBalanceRow(rows, pharmacy_id) {
@@ -743,8 +887,10 @@ function saveDelivery(event) {
     quantity_sent: Number(line.querySelector(".delivery-quantity").value || 0),
   }));
   if (lines.some((line) => !line.product_id || line.quantity_sent <= 0)) return alert("Choose a product and quantity more than 0 for each line.");
-  const delivery_batch_id = makeId("delivery_batch");
-  data.deliveries.push(...lines.map((line) => ({
+  const editBatchId = document.getElementById("deliveryEditBatchId").value;
+  const delivery_batch_id = editBatchId || makeId("delivery_batch");
+  if (editBatchId) data.deliveries = data.deliveries.filter((row) => (row.delivery_batch_id || row.delivery_id) !== editBatchId);
+  lines.forEach((line) => data.deliveries.push({
     delivery_id: makeId("delivery"),
     delivery_batch_id,
     date: textValue("deliveryDate"),
@@ -752,9 +898,10 @@ function saveDelivery(event) {
     product_id: line.product_id,
     quantity_sent: line.quantity_sent,
     notes: textValue("deliveryNotes"),
-  })));
+  }));
   saveData();
   event.target.reset();
+  endDeliveryEdit();
   resetDeliveryLines();
   setDefaultDates();
   renderAll();
@@ -768,14 +915,14 @@ function saveSale(event) {
     quantity_sold: Number(line.querySelector(".sales-quantity").value || 0),
   }));
   if (lines.some((line) => !line.product_id || line.quantity_sold <= 0)) return alert("Choose a product and quantity more than 0 for each line.");
-  data.sales.push(...lines.map((line) => ({
+  lines.forEach((line) => data.sales.push({
     sales_id: makeId("sales"),
     date: textValue("salesDate"),
     pharmacy_id: document.getElementById("salesPharmacy").value,
     product_id: line.product_id,
     quantity_sold: line.quantity_sold,
     notes: textValue("salesNotes"),
-  })));
+  }));
   saveData();
   event.target.reset();
   resetSalesLines();
@@ -793,6 +940,23 @@ function savePayment(event) {
     pharmacy_id: document.getElementById("paymentPharmacy").value,
     amount_paid: amount,
     notes: textValue("paymentNotes"),
+  });
+  saveData();
+  event.target.reset();
+  setDefaultDates();
+  renderAll();
+}
+
+function saveExpense(event) {
+  event.preventDefault();
+  const amount = numberValue("expenseAmount");
+  if (amount <= 0) return alert("Expense amount must be more than 0.");
+  data.expenses.push({
+    expense_id: makeId("expense"),
+    date: textValue("expenseDate"),
+    category: textValue("expenseCategory"),
+    amount,
+    notes: textValue("expenseNotes"),
   });
   saveData();
   event.target.reset();
@@ -842,6 +1006,34 @@ function endPharmacyEdit() {
   document.getElementById("pharmacyEditId").value = "";
   document.getElementById("pharmacySubmit").textContent = "Save pharmacy";
   document.getElementById("cancelPharmacyEdit").hidden = true;
+}
+
+function editDeliveryBatch(id) {
+  const batch = deliveryRows().find((row) => row.batch_id === id);
+  if (!batch) return;
+  document.getElementById("deliveryEditBatchId").value = id;
+  document.getElementById("deliveryDate").value = batch.date;
+  document.getElementById("deliveryPharmacy").value = batch.pharmacy_id;
+  document.getElementById("deliveryNotes").value = batch.notes;
+  document.getElementById("deliverySubmit").textContent = "Update delivery";
+  document.getElementById("cancelDeliveryEdit").hidden = false;
+  const lines = document.getElementById("deliveryLines");
+  lines.innerHTML = "";
+  batch.items.forEach((item) => {
+    addDeliveryLine();
+    const line = lines.lastElementChild;
+    line.querySelector(".delivery-product").value = item.product_id;
+    line.querySelector(".delivery-quantity").value = item.quantity_sent;
+  });
+  renderDropdowns();
+  updateDeliveryLineButtons();
+  document.getElementById("deliveryForm").scrollIntoView({ behavior: "smooth" });
+}
+
+function endDeliveryEdit() {
+  document.getElementById("deliveryEditBatchId").value = "";
+  document.getElementById("deliverySubmit").textContent = "Save delivery";
+  document.getElementById("cancelDeliveryEdit").hidden = true;
 }
 
 function deleteProduct(id) {
@@ -941,6 +1133,10 @@ function demoData() {
       { payment_id: "demo_payment_1", date: "2026-06-09", pharmacy_id: "demo_pharmacy_1", amount_paid: 150000, notes: "Partial payment" },
       { payment_id: "demo_payment_2", date: "2026-06-12", pharmacy_id: "demo_pharmacy_2", amount_paid: 180000, notes: "Partial payment" },
     ],
+    expenses: [
+      { expense_id: "demo_expense_1", date: "2026-06-09", category: "Gasoline", amount: 25000, notes: "Delivery route" },
+      { expense_id: "demo_expense_2", date: "2026-06-12", category: "Food & Drink", amount: 40000, notes: "Visit expense" },
+    ],
   };
 }
 
@@ -983,8 +1179,11 @@ function wireEvents() {
   document.getElementById("deliveryForm").addEventListener("submit", saveDelivery);
   document.getElementById("salesForm").addEventListener("submit", saveSale);
   document.getElementById("paymentForm").addEventListener("submit", savePayment);
+  document.getElementById("expenseForm").addEventListener("submit", saveExpense);
   document.getElementById("productSearch").addEventListener("input", renderProducts);
   document.getElementById("pharmacySearch").addEventListener("input", renderPharmacies);
+  document.getElementById("deliveryFilterPharmacy").addEventListener("change", renderDeliveries);
+  document.getElementById("salesFilterPharmacy").addEventListener("change", renderSales);
   document.getElementById("addDeliveryLine").addEventListener("click", addDeliveryLine);
   document.getElementById("addSalesLine").addEventListener("click", addSalesLine);
   document.getElementById("salesPharmacy").addEventListener("change", () => {
@@ -998,6 +1197,12 @@ function wireEvents() {
   document.getElementById("cancelPharmacyEdit").addEventListener("click", () => {
     document.getElementById("pharmacyForm").reset();
     endPharmacyEdit();
+  });
+  document.getElementById("cancelDeliveryEdit").addEventListener("click", () => {
+    document.getElementById("deliveryForm").reset();
+    endDeliveryEdit();
+    resetDeliveryLines();
+    setDefaultDates();
   });
 
   document.body.addEventListener("click", (event) => {
@@ -1014,14 +1219,17 @@ function wireEvents() {
       target.closest(".sales-line").remove();
       updateSalesLineButtons();
     }
+    if (target.dataset.editDeliveryBatch) editDeliveryBatch(target.dataset.editDeliveryBatch);
     if (target.dataset.deleteDeliveryBatch) deleteDeliveryBatch(target.dataset.deleteDeliveryBatch);
     if (target.dataset.deleteSale) deleteById("sales", "sales_id", target.dataset.deleteSale);
     if (target.dataset.deletePayment) deleteById("payments", "payment_id", target.dataset.deletePayment);
+    if (target.dataset.deleteExpense) deleteById("expenses", "expense_id", target.dataset.deleteExpense);
   });
 
   document.getElementById("exportBackup").addEventListener("click", exportBackup);
   document.getElementById("importBackup").addEventListener("change", importBackup);
   document.getElementById("loadDemoData").addEventListener("click", loadDemoData);
+  document.getElementById("dashboardInsight").addEventListener("change", renderDashboard);
   document.getElementById("dashboardMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
   document.getElementById("reportMonth").addEventListener("change", (event) => setReportMonth(event.target.value));
   document.getElementById("reportPharmacy").addEventListener("change", renderAll);
@@ -1043,6 +1251,9 @@ function wireEvents() {
       { label: "Inventory value", value: (row) => row.inventory_value },
       { label: "Total omzet", value: (row) => row.omzet },
       { label: "Total modal", value: (row) => row.modal },
+      { label: "Modal delivered", value: (row) => row.modal_delivered },
+      { label: "Modal sold", value: (row) => row.modal_sold },
+      { label: "Modal remaining", value: (row) => row.modal_remaining },
       { label: "Total profit", value: (row) => row.profit },
     ]);
   });
@@ -1052,6 +1263,9 @@ function wireEvents() {
       { label: "Inventory value", value: (row) => row.inventory_value },
       { label: "Total omzet", value: (row) => row.omzet },
       { label: "Total modal", value: (row) => row.modal },
+      { label: "Modal delivered", value: (row) => row.modal_delivered },
+      { label: "Modal sold", value: (row) => row.modal_sold },
+      { label: "Modal remaining", value: (row) => row.modal_remaining },
       { label: "Payment received", value: (row) => row.paid },
       { label: "Unpaid balance", value: (row) => row.balance },
     ]);
