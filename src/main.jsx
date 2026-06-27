@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { hasSupabaseConfig, supabase } from "./supabase.js";
 import {
@@ -18,7 +18,7 @@ import {
 import "../styles.css";
 
 const STORAGE_KEY = "herbal_consignment_v1";
-const APP_VERSION = "2026-06-24.8";
+const APP_VERSION = "2026-06-25.2";
 const money = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const tabs = ["Dashboard", "Products", "Pharmacies", "Deliveries", "Sales", "Payments", "Expenses", "Reports", "Backup"];
 const insightLabels = {
@@ -82,10 +82,10 @@ function Tracker({ user }) {
 
   async function run(action, success = "Saved.") {
     try {
-      await action();
+      const value = await action();
       await refresh();
       toast(setMessage, success);
-      return { ok: true };
+      return { ok: true, value };
     } catch (error) {
       toast(setMessage, error.message);
       return { ok: false, error };
@@ -114,15 +114,15 @@ function Tracker({ user }) {
         </div>
         {loadError && <section className="error-panel"><strong>Supabase load failed.</strong><span>{loadError}</span></section>}
         {!hasData && localBackup && <ImportPrompt onImport={() => run(() => importLegacy(localBackup, user.id), "Browser data imported.")} />}
-        {activeTab === "Dashboard" && <Dashboard data={data} filters={filters} setFilters={setFilters} insight={insight} setInsight={setInsight} />}
-        {activeTab === "Products" && <Products data={data} run={run} userId={user.id} />}
-        {activeTab === "Pharmacies" && <Pharmacies data={data} run={run} userId={user.id} />}
-        {activeTab === "Deliveries" && <Deliveries data={data} run={run} userId={user.id} />}
-        {activeTab === "Sales" && <Sales data={data} run={run} userId={user.id} />}
-        {activeTab === "Payments" && <Payments data={data} run={run} userId={user.id} />}
-        {activeTab === "Expenses" && <Expenses data={data} run={run} userId={user.id} />}
-        {activeTab === "Reports" && <Reports data={data} filters={filters} setFilters={setFilters} />}
-        {activeTab === "Backup" && <Backup data={data} run={run} userId={user.id} />}
+        <section className="tab-page" hidden={activeTab !== "Dashboard"}><Dashboard data={data} filters={filters} setFilters={setFilters} insight={insight} setInsight={setInsight} /></section>
+        <section className="tab-page" hidden={activeTab !== "Products"}><Products data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Pharmacies"}><Pharmacies data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Deliveries"}><Deliveries data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Sales"}><Sales data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Payments"}><Payments data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Expenses"}><Expenses data={data} run={run} userId={user.id} /></section>
+        <section className="tab-page" hidden={activeTab !== "Reports"}><Reports data={data} filters={filters} setFilters={setFilters} /></section>
+        <section className="tab-page" hidden={activeTab !== "Backup"}><Backup data={data} run={run} userId={user.id} /></section>
       </main>
     </div>
   );
@@ -145,6 +145,7 @@ function Dashboard({ data, filters, setFilters, insight, setInsight }) {
     ["Gross profit", money.format(t.gross_profit)],
     ["Total expenses", money.format(t.expenses)],
     ["Net profit", money.format(t.profit)],
+    ["Cash earned", money.format(t.cash_earned)],
     ["Total unpaid balance", money.format(t.unpaid)],
   ];
   return (
@@ -185,7 +186,7 @@ function Products({ data, run, userId }) {
       form={<ProductForm data={data} edit={edit} clear={() => setEdit(null)} onSave={(item) => run(() => saveProduct(item, userId), "Product saved.")} />}
       table={<Table headers={["ID", "Product", "Supplier", "Modal", "Selling", "Notes", "Action"]} rows={rows} render={(row) => [
         row.code, row.name, row.supplier_name, money.format(row.purchase_price), money.format(row.selling_price), row.notes,
-        <RowActions onEdit={() => setEdit(row)} onDelete={() => run(() => remove("products", row.id), "Product deleted.")} />,
+        <RowActions onEdit={() => setEdit(row)} onDelete={() => run(() => removeProduct(row.id), "Product deleted.")} />,
       ]} />}
     />
   );
@@ -193,14 +194,27 @@ function Products({ data, run, userId }) {
 
 function ProductForm({ data, edit, clear, onSave }) {
   const [form, setForm] = useState(blankProduct(data));
+  const [saving, submit] = useSubmitLock();
   useEffect(() => setForm(edit || blankProduct(data)), [edit, data.products.length]);
-  return <FormGrid onSubmit={() => onSave(form)}>
+  function cancel() {
+    setForm(blankProduct(data));
+    clear?.();
+  }
+  async function save() {
+    if (edit && form.pharmacy_id !== edit.pharmacy_id) {
+      const from = pharmacyName(data, edit.pharmacy_id);
+      const to = pharmacyName(data, form.pharmacy_id);
+      if (!confirm(`Move this whole delivery from ${from} to ${to}?`)) return { ok: false };
+    }
+    return onSave(form);
+  }
+  return <FormGrid onSubmit={() => submit(save, cancel)}>
     <Field label="Product name" value={form.name} set={(name) => setForm({ ...form, name })} required />
     <Field label="Supplier" value={form.supplier_name} set={(supplier_name) => setForm({ ...form, supplier_name })} />
     <Field label="Purchase price / modal" type="number" value={form.purchase_price} set={(purchase_price) => setForm({ ...form, purchase_price })} required />
     <Field label="Selling price" type="number" value={form.selling_price} set={(selling_price) => setForm({ ...form, selling_price })} required />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions editing={Boolean(edit)} clear={clear} />
+    <Actions editing={Boolean(edit)} clear={cancel} disabled={saving} />
   </FormGrid>;
 }
 
@@ -217,7 +231,7 @@ function Pharmacies({ data, run, userId }) {
       form={<PharmacyForm data={data} edit={edit} clear={() => setEdit(null)} onSave={(item) => run(() => savePharmacy(item, userId), "Pharmacy saved.")} />}
       table={<Table headers={["ID", "Pharmacy", "Address", "Contact", "Phone", "Notes", "Action"]} rows={rows} render={(row) => [
         row.code, row.name, row.address, row.contact_person, row.phone_number, row.notes,
-        <RowActions onEdit={() => setEdit(row)} onDelete={() => run(() => remove("pharmacies", row.id), "Pharmacy deleted.")} />,
+        <RowActions onEdit={() => setEdit(row)} onDelete={() => run(() => removePharmacy(row.id), "Pharmacy deleted.")} />,
       ]} />}
     />
   );
@@ -225,14 +239,19 @@ function Pharmacies({ data, run, userId }) {
 
 function PharmacyForm({ data, edit, clear, onSave }) {
   const [form, setForm] = useState(blankPharmacy(data));
+  const [saving, submit] = useSubmitLock();
   useEffect(() => setForm(edit || blankPharmacy(data)), [edit, data.pharmacies.length]);
-  return <FormGrid onSubmit={() => onSave(form)}>
+  function cancel() {
+    setForm(blankPharmacy(data));
+    clear?.();
+  }
+  return <FormGrid onSubmit={() => submit(() => onSave(form), cancel)}>
     <Field label="Pharmacy name" value={form.name} set={(name) => setForm({ ...form, name })} required />
     <Field label="Contact person" value={form.contact_person} set={(contact_person) => setForm({ ...form, contact_person })} />
     <Field label="Phone number" value={form.phone_number} set={(phone_number) => setForm({ ...form, phone_number })} />
     <Field label="Address" value={form.address} set={(address) => setForm({ ...form, address })} wide textarea />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions editing={Boolean(edit)} clear={clear} />
+    <Actions editing={Boolean(edit)} clear={cancel} disabled={saving} />
   </FormGrid>;
 }
 
@@ -250,7 +269,7 @@ function Deliveries({ data, run, userId }) {
       table={<Table headers={["Date", "Pharmacy", "Products sent", "Notes", "Action"]} rows={rows} render={(row) => [
         row.date,
         pharmacyName(data, row.pharmacy_id),
-        <ItemList items={data.deliveryItems.filter((item) => item.batch_id === row.id).map((item) => `${productName(data, item.product_id)}: ${item.quantity_sent}`)} />,
+        <ItemList items={deliveryItemsForBatch(data, row.id).map((item) => `${productName(data, item.product_id)}: ${item.quantity_sent}`)} />,
         row.notes,
         <RowActions onEdit={() => setEdit(row)} onDelete={() => run(() => removeDelivery(row.id), "Delivery deleted.")} />,
       ]} />}
@@ -260,13 +279,20 @@ function Deliveries({ data, run, userId }) {
 
 function DeliveryForm({ data, edit, clear, onSave }) {
   const [form, setForm] = useState(blankDelivery(data));
-  useEffect(() => setForm(edit ? deliveryForEdit(data, edit) : blankDelivery(data)), [edit, data.deliveryBatches.length, data.deliveryItems.length]);
-  return <FormGrid onSubmit={() => onSave(form)}>
+  const [saving, submit] = useSubmitLock();
+  useEffect(() => {
+    if (edit) setForm(deliveryForEdit(data, edit));
+  }, [edit?.id]);
+  function cancel() {
+    setForm(blankDelivery(data));
+    clear?.();
+  }
+  return <FormGrid onSubmit={() => submit(() => onSave(form), cancel)}>
     <Field label="Date" type="date" value={form.date} set={(date) => setForm({ ...form, date })} required />
     <Lookup label="Pharmacy" value={form.pharmacy_id} set={(pharmacy_id) => setForm({ ...form, pharmacy_id })} options={data.pharmacies} required />
     <Lines label="Products" rows={form.items} products={data.products} qtyKey="quantity_sent" set={(items) => setForm({ ...form, items })} />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions editing={Boolean(edit)} clear={clear} />
+    <Actions editing={Boolean(edit)} clear={cancel} disabled={saving} />
   </FormGrid>;
 }
 
@@ -280,7 +306,7 @@ function Sales({ data, run, userId }) {
       filter={<Lookup label="Filter sales by pharmacy" value={filter} set={setFilter} options={data.pharmacies} placeholder="All pharmacies" />}
       table={<Table headers={["Date", "Pharmacy", "Product", "Qty sold", "Omzet", "Profit", "Notes", "Action"]} rows={saleRows} render={(row) => {
         const product = data.products.find((item) => item.id === row.product_id);
-        return [row.date, pharmacyName(data, row.pharmacy_id), productName(data, row.product_id), row.quantity_sold, money.format(row.quantity_sold * (product?.selling_price || 0)), money.format(row.quantity_sold * ((product?.selling_price || 0) - (product?.purchase_price || 0))), row.notes, <button className="danger" onClick={() => run(() => removeSale(row.report_id), "Sales report deleted.")}>Delete</button>];
+        return [row.date, pharmacyName(data, row.pharmacy_id), productName(data, row.product_id), row.quantity_sold, money.format(row.quantity_sold * (product?.selling_price || 0)), money.format(row.quantity_sold * ((product?.selling_price || 0) - (product?.purchase_price || 0))), row.notes, <button className="danger" onClick={() => run(() => removeSaleItem(row), "Sale deleted.")}>Delete</button>];
       }} />}
     />
   );
@@ -288,45 +314,48 @@ function Sales({ data, run, userId }) {
 
 function SaleForm({ data, onSave }) {
   const [form, setForm] = useState(blankSale(data));
+  const [saving, submit] = useSubmitLock();
   const products = form.pharmacy_id ? data.products.filter((product) => stockAt(data, form.pharmacy_id, product.id) > 0) : data.products;
-  return <FormGrid onSubmit={() => onSave(form).then(() => setForm(blankSale(data)))}>
+  return <FormGrid onSubmit={() => submit(() => onSave(form), () => setForm(blankSale(data)))}>
     <Field label="Date" type="date" value={form.date} set={(date) => setForm({ ...form, date })} required />
     <Lookup label="Pharmacy" value={form.pharmacy_id} set={(pharmacy_id) => setForm({ ...form, pharmacy_id })} options={data.pharmacies} required />
     <Lines label="Products" rows={form.items} products={products} qtyKey="quantity_sold" set={(items) => setForm({ ...form, items })} />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions />
+    <Actions disabled={saving} />
   </FormGrid>;
 }
 
 function Payments({ data, run, userId }) {
   const rows = data.payments.sort((a, b) => b.date.localeCompare(a.date));
-  return <CrudPage title="Payment Record" form={<PaymentForm data={data} onSave={(item) => run(() => savePayment(item, userId), "Payment saved.")} />} table={<Table headers={["Date", "Pharmacy", "Amount paid", "Notes", "Action"]} rows={rows} render={(row) => [row.date, pharmacyName(data, row.pharmacy_id), money.format(row.amount_paid), row.notes, <button className="danger" onClick={() => run(() => remove("payments", row.id), "Payment deleted.")}>Delete</button>]} />} />;
+  return <CrudPage title="Payment Record" form={<PaymentForm data={data} onSave={(item) => run(() => savePayment(item, userId), "Payment saved.")} />} table={<Table headers={["Date", "Pharmacy", "Amount paid", "Notes", "Action"]} rows={rows} render={(row) => [row.date, pharmacyName(data, row.pharmacy_id), money.format(row.amount_paid), row.notes, <button className="danger" onClick={() => run(() => remove("payments", row.id, "payment"), "Payment deleted.")}>Delete</button>]} />} />;
 }
 
 function PaymentForm({ data, onSave }) {
   const [form, setForm] = useState(blankPayment(data));
-  return <FormGrid onSubmit={() => onSave(form).then(() => setForm(blankPayment(data)))}>
+  const [saving, submit] = useSubmitLock();
+  return <FormGrid onSubmit={() => submit(() => onSave(form), () => setForm(blankPayment(data)))}>
     <Field label="Date" type="date" value={form.date} set={(date) => setForm({ ...form, date })} required />
     <Lookup label="Pharmacy" value={form.pharmacy_id} set={(pharmacy_id) => setForm({ ...form, pharmacy_id })} options={data.pharmacies} required />
     <Field label="Amount paid" type="number" value={form.amount_paid} set={(amount_paid) => setForm({ ...form, amount_paid })} required />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions />
+    <Actions disabled={saving} />
   </FormGrid>;
 }
 
 function Expenses({ data, run, userId }) {
   const rows = data.expenses.sort((a, b) => b.date.localeCompare(a.date));
-  return <CrudPage title="Expense Record" form={<ExpenseForm data={data} onSave={(item) => run(() => saveExpense(item, userId), "Expense saved.")} />} table={<Table headers={["Date", "Category", "Amount", "Notes", "Action"]} rows={rows} render={(row) => [row.date, row.category, money.format(row.amount), row.notes, <button className="danger" onClick={() => run(() => remove("expenses", row.id), "Expense deleted.")}>Delete</button>]} />} />;
+  return <CrudPage title="Expense Record" form={<ExpenseForm data={data} onSave={(item) => run(() => saveExpense(item, userId), "Expense saved.")} />} table={<Table headers={["Date", "Category", "Amount", "Notes", "Action"]} rows={rows} render={(row) => [row.date, row.category, money.format(row.amount), row.notes, <button className="danger" onClick={() => run(() => remove("expenses", row.id, "expense"), "Expense deleted.")}>Delete</button>]} />} />;
 }
 
 function ExpenseForm({ data, onSave }) {
   const [form, setForm] = useState(blankExpense(data));
-  return <FormGrid onSubmit={() => onSave(form).then(() => setForm(blankExpense(data)))}>
+  const [saving, submit] = useSubmitLock();
+  return <FormGrid onSubmit={() => submit(() => onSave(form), () => setForm(blankExpense(data)))}>
     <Field label="Date" type="date" value={form.date} set={(date) => setForm({ ...form, date })} required />
     <label>Category<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} required><option value="">Choose category</option><option>Gasoline</option><option>Hospitality</option><option>Food & Drink</option></select></label>
     <Field label="Amount" type="number" value={form.amount} set={(amount) => setForm({ ...form, amount })} required />
     <Field label="Notes" value={form.notes} set={(notes) => setForm({ ...form, notes })} wide textarea />
-    <Actions />
+    <Actions disabled={saving} />
   </FormGrid>;
 }
 
@@ -362,6 +391,23 @@ function Reports({ data, filters, setFilters }) {
 function Backup({ data, run, userId }) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [csvType, setCsvType] = useState("deliveries");
+  const deliveryAudit = data.deliveryBatches
+    .map((batch) => {
+      const items = data.deliveryItems.filter((item) => item.batch_id === batch.id);
+      const pharmacy = data.pharmacies.find((row) => row.id === batch.pharmacy_id);
+      return {
+        id: batch.id,
+        code: batch.code,
+        date: batch.date,
+        pharmacyCode: pharmacy?.code || "missing",
+        pharmacy: pharmacy?.name || "Deleted pharmacy",
+        items: items.length,
+        quantity: items.reduce((total, item) => total + Number(item.quantity_sent || 0), 0),
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const duplicatePharmacies = duplicateNames(data.pharmacies);
   function onFile(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -379,8 +425,9 @@ function Backup({ data, run, userId }) {
         if (!count) throw new Error("This JSON does not look like a Herbal Consignment backup.");
         setStatus(`Importing ${count} records...`);
         const result = await run(() => importLegacy(legacy, userId), "Backup imported.");
+        const skipped = result.value?.skipped?.length || 0;
         setStatus(result.ok
-          ? `Imported ${count} records. Check Products, Pharmacies, Deliveries, Sales, Payments, and Expenses.`
+          ? `Imported ${count - skipped} records${skipped ? `, skipped ${skipped} broken demo/missing-reference rows` : ""}. Check Products, Pharmacies, Deliveries, Sales, Payments, and Expenses.`
           : `Import failed: ${result.error.message}`);
       } catch (error) {
         setStatus(`Import failed: ${error.message}`);
@@ -403,11 +450,27 @@ function Backup({ data, run, userId }) {
     <h3>Backup</h3>
     <div className="inline">
       <button onClick={() => downloadJson(`herbal-consignment-backup-${today()}.json`, toLegacyBackup(data))}>Export JSON</button>
+      <label className="compact-select">CSV data<select value={csvType} onChange={(event) => setCsvType(event.target.value)}>
+        <option value="products">Products</option>
+        <option value="pharmacies">Pharmacies</option>
+        <option value="deliveries">Deliveries</option>
+        <option value="sales">Sales</option>
+        <option value="payments">Payments</option>
+        <option value="expenses">Expenses</option>
+      </select></label>
+      <button onClick={() => exportBackupCsv(csvType, data)}>Export CSV</button>
       <label className={`file-button ${busy ? "disabled" : ""}`}>Import JSON<input type="file" accept="application/json,.json" onChange={onFile} disabled={busy} /></label>
       <button className="danger" onClick={clearData} disabled={busy}>Clear all Supabase data</button>
     </div>
     <p className="muted">Import keeps your old browser backup format and preserves readable IDs.</p>
     {status && <p className="import-status">{status}</p>}
+    <details className="audit-box">
+      <summary>Delivery backend audit: {data.deliveryBatches.length} batches / {data.deliveryItems.length} product lines</summary>
+      {duplicatePharmacies.length > 0 && <p className="import-status">Duplicate pharmacy names found: {duplicatePharmacies.join(", ")}</p>}
+      <div className="audit-list">
+        {deliveryAudit.map((row) => <span key={row.id}>{row.date} - {row.pharmacyCode} {row.pharmacy} - {row.code}: {row.items} products, {row.quantity} total qty</span>)}
+      </div>
+    </details>
   </section>;
 }
 
@@ -469,27 +532,48 @@ function FormGrid({ children, onSubmit }) {
   return <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>{children}</form>;
 }
 
+function useSubmitLock() {
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  async function submit(action, onSuccess) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const result = await action();
+      if (result?.ok) onSuccess?.(result);
+      return result;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+  return [saving, submit];
+}
+
 function Field({ label, value, set, type = "text", required = false, wide = false, textarea = false }) {
   const Tag = textarea ? "textarea" : "input";
   return <label className={wide ? "wide" : ""}>{label}<Tag type={type} value={value || ""} onChange={(event) => set(event.target.value)} required={required} /></label>;
 }
 
 function Lookup({ label, value, set, options, placeholder = "Choose", required = false }) {
-  const selected = options.find((row) => row.id === value)?.name || "";
+  const selectedRow = options.find((row) => row.id === value);
+  const selected = selectedRow?.name || "";
   const [query, setQuery] = useState(selected);
   const [open, setOpen] = useState(false);
   useEffect(() => setQuery(selected), [selected]);
   const sorted = options.slice().sort(byName);
   const suggestions = sorted
-    .filter((row) => !query || row.name.toLowerCase().includes(query.toLowerCase()))
+    .filter((row) => matchesLookup(row, query))
     .slice(0, 8);
   function exactOption(text) {
-    const typed = text.toLowerCase();
-    return sorted.find((row) => row.name.toLowerCase() === typed);
+    if (!text.trim()) return null;
+    if (selectedRow && exactLookup(selectedRow, text)) return selectedRow;
+    return sorted.find((row) => exactLookup(row, text));
   }
   function firstMatch(text) {
-    const typed = text.toLowerCase();
-    return exactOption(text) || sorted.find((row) => row.name.toLowerCase().startsWith(typed));
+    if (!text.trim()) return null;
+    return exactOption(text) || sorted.find((row) => startsLookup(row, text));
   }
   function choose(row) {
     set(row.id);
@@ -506,13 +590,19 @@ function Lookup({ label, value, set, options, placeholder = "Choose", required =
       onChange={(event) => {
         const text = event.target.value;
         setQuery(text);
-        set(exactOption(text)?.id || "");
         setOpen(true);
       }}
       onBlur={() => {
         const match = firstMatch(query);
         if (match) choose(match);
-        else {
+        else if (query.trim()) {
+          if (required && selectedRow) setQuery(selected);
+          else {
+            set("");
+            setQuery("");
+          }
+          setOpen(false);
+        } else {
           set("");
           setQuery("");
           setOpen(false);
@@ -521,10 +611,33 @@ function Lookup({ label, value, set, options, placeholder = "Choose", required =
     />
     {open && suggestions.length > 0 && <div className="lookup-options">
       {suggestions.map((row) => (
-        <button type="button" key={row.id} onMouseDown={(event) => { event.preventDefault(); choose(row); }}>{row.name}</button>
+        <button type="button" key={row.id} onMouseDown={(event) => { event.preventDefault(); choose(row); }}><span>{row.name}</span>{row.code && <small>{row.code}</small>}</button>
       ))}
     </div>}
   </label>;
+}
+
+function lookupText(text) {
+  return String(text || "").trim().toLowerCase();
+}
+
+function lookupLabel(row) {
+  return row.code ? `${row.code} ${row.name}` : row.name;
+}
+
+function exactLookup(row, text) {
+  const typed = lookupText(text);
+  return [row.name, row.code, lookupLabel(row)].some((value) => lookupText(value) === typed);
+}
+
+function startsLookup(row, text) {
+  const typed = lookupText(text);
+  return [row.name, row.code, lookupLabel(row)].some((value) => lookupText(value).startsWith(typed));
+}
+
+function matchesLookup(row, text) {
+  const typed = lookupText(text);
+  return !typed || [row.name, row.code, lookupLabel(row)].some((value) => lookupText(value).includes(typed));
 }
 
 function Lines({ label, rows, products, qtyKey, set }) {
@@ -540,8 +653,9 @@ function Lines({ label, rows, products, qtyKey, set }) {
   ))}<button className="secondary" type="button" onClick={() => set([...rows, { product_id: "", [qtyKey]: 1 }])}>Add product</button></div>;
 }
 
-function Actions({ editing, clear }) {
-  return <div className="wide inline"><button type="submit">{editing ? "Update" : "Save"}</button>{editing && <button type="button" className="secondary" onClick={clear}>Cancel edit</button>}</div>;
+function Actions({ editing, clear, disabled = false }) {
+  const label = disabled ? "Saving..." : editing ? "Update" : "Save";
+  return <div className="wide inline"><button type="submit" className={disabled ? "saving" : ""} disabled={disabled}>{label}</button>{editing && <button type="button" className="secondary" onClick={clear} disabled={disabled}>Cancel edit</button>}</div>;
 }
 
 function RowActions({ onEdit, onDelete }) {
@@ -561,7 +675,13 @@ function MonthFilter({ filters, setFilters }) {
 }
 
 function ItemList({ items }) {
-  return <div className="item-list">{items.map((item) => <span key={item}>{item}</span>)}</div>;
+  return <div className="item-list">{items.map((item, index) => <span key={item}><b>{index + 1}</b>{item}</span>)}</div>;
+}
+
+function deliveryItemsForBatch(data, batchId) {
+  return data.deliveryItems
+    .filter((item) => item.batch_id === batchId)
+    .sort((a, b) => productName(data, a.product_id).localeCompare(productName(data, b.product_id)));
 }
 
 async function loadAll() {
@@ -594,31 +714,35 @@ async function select(table) {
 }
 
 async function saveProduct(item, owner_id) {
-  await upsert("products", { ...item, owner_id, purchase_price: Number(item.purchase_price), selling_price: Number(item.selling_price) });
+  await upsert("products", { ...item, code: item.id ? item.code : await nextCode("products", "P"), owner_id, purchase_price: Number(item.purchase_price), selling_price: Number(item.selling_price) });
 }
 
 async function savePharmacy(item, owner_id) {
-  await upsert("pharmacies", { ...item, owner_id });
+  await upsert("pharmacies", { ...item, code: item.id ? item.code : await nextCode("pharmacies", "PH"), owner_id });
 }
 
 async function saveDelivery(item, owner_id) {
-  const batch = await upsert("delivery_batches", { id: item.id, owner_id, code: item.code, date: item.date, pharmacy_id: item.pharmacy_id, notes: item.notes }, true);
+  const items = mergeLines(item.items, "quantity_sent");
+  const batch = await upsert("delivery_batches", { id: item.id, owner_id, code: item.id ? item.code : await nextCode("delivery_batches", "DB"), date: item.date, pharmacy_id: item.pharmacy_id, notes: item.notes }, true);
   const { error } = await supabase.from("delivery_items").delete().eq("batch_id", batch.id);
   if (error) throw error;
-  await insertRows("delivery_items", item.items.map((line) => ({ owner_id, batch_id: batch.id, product_id: line.product_id, quantity_sent: Number(line.quantity_sent) })));
+  await insertRows("delivery_items", items.map((line) => ({ owner_id, batch_id: batch.id, product_id: line.product_id, quantity_sent: Number(line.quantity_sent) })));
 }
 
 async function saveSale(item, owner_id) {
-  const report = await upsert("sales_reports", { owner_id, code: item.code, date: item.date, pharmacy_id: item.pharmacy_id, notes: item.notes }, true);
-  await insertRows("sales_items", item.items.map((line) => ({ owner_id, report_id: report.id, product_id: line.product_id, quantity_sold: Number(line.quantity_sold) })));
+  const items = mergeLines(item.items, "quantity_sold");
+  const report = await upsert("sales_reports", { owner_id, code: item.id ? item.code : await nextCode("sales_reports", "S"), date: item.date, pharmacy_id: item.pharmacy_id, notes: item.notes }, true);
+  const { error } = await supabase.from("sales_items").delete().eq("report_id", report.id);
+  if (error) throw error;
+  await insertRows("sales_items", items.map((line) => ({ owner_id, report_id: report.id, product_id: line.product_id, quantity_sold: Number(line.quantity_sold) })));
 }
 
 async function savePayment(item, owner_id) {
-  await upsert("payments", { ...item, owner_id, amount_paid: Number(item.amount_paid) });
+  await upsert("payments", { ...item, code: item.id ? item.code : await nextCode("payments", "PAY"), owner_id, amount_paid: Number(item.amount_paid) });
 }
 
 async function saveExpense(item, owner_id) {
-  await upsert("expenses", { ...item, owner_id, amount: Number(item.amount) });
+  await upsert("expenses", { ...item, code: item.id ? item.code : await nextCode("expenses", "E"), owner_id, amount: Number(item.amount) });
 }
 
 async function upsert(table, row, single = false) {
@@ -634,7 +758,44 @@ async function insertRows(table, rows) {
   if (error) throw error;
 }
 
-async function remove(table, id) {
+async function nextCode(table, prefix) {
+  const { data, error } = await supabase.from(table).select("code");
+  if (error) throw error;
+  return makeCode(prefix, data || []);
+}
+
+function mergeLines(lines, qtyKey) {
+  const rows = new Map();
+  for (const line of lines) {
+    if (!line.product_id) continue;
+    rows.set(line.product_id, {
+      product_id: line.product_id,
+      [qtyKey]: Number(rows.get(line.product_id)?.[qtyKey] || 0) + Number(line[qtyKey] || 0),
+    });
+  }
+  return [...rows.values()].filter((row) => row[qtyKey] > 0);
+}
+
+async function removeProduct(id) {
+  const used = await referenceCount("delivery_items", "product_id", id) + await referenceCount("sales_items", "product_id", id);
+  if (used) throw new Error("Cannot delete this product because it is used in deliveries or sales. Edit its name/notes instead.");
+  await remove("products", id, "product");
+}
+
+async function removePharmacy(id) {
+  const used = await referenceCount("delivery_batches", "pharmacy_id", id) + await referenceCount("sales_reports", "pharmacy_id", id) + await referenceCount("payments", "pharmacy_id", id);
+  if (used) throw new Error("Cannot delete this pharmacy because it is used in deliveries, sales, or payments. Edit its name/notes instead.");
+  await remove("pharmacies", id, "pharmacy");
+}
+
+async function referenceCount(table, column, value) {
+  const { count, error } = await supabase.from(table).select("id", { count: "exact", head: true }).eq(column, value);
+  if (error) throw error;
+  return count || 0;
+}
+
+async function remove(table, id, label = "record") {
+  if (!confirm(`Delete this ${label}?`)) throw new Error("Delete cancelled.");
   const { error } = await supabase.from(table).delete().eq("id", id);
   if (error) throw error;
 }
@@ -651,11 +812,15 @@ async function clearAllData(owner_id) {
 }
 
 async function removeDelivery(id) {
-  await remove("delivery_batches", id);
+  await remove("delivery_batches", id, "delivery");
 }
 
-async function removeSale(id) {
-  await remove("sales_reports", id);
+async function removeSaleItem(item) {
+  // ponytail: delete the clicked product line; the report may contain other lines.
+  await remove("sales_items", item.id, "sale");
+  if (!await referenceCount("sales_items", "report_id", item.report_id)) {
+    await deleteWhere("sales_reports", "id", item.report_id);
+  }
 }
 
 async function importLegacy(legacy, owner_id) {
@@ -672,6 +837,9 @@ async function importLegacy(legacy, owner_id) {
   };
   const clearedBatches = new Set();
   const clearedReports = new Set();
+  const deliveryLines = new Map();
+  const salesLines = new Map();
+  const skipped = [];
 
   for (const old of legacy.products || []) {
     const row = await upsert("products", {
@@ -704,10 +872,13 @@ async function importLegacy(legacy, owner_id) {
     const key = old.delivery_batch_id || old.delivery_id;
     if (!batches.has(key)) {
       const pharmacy_id = pharmacyMap.get(old.pharmacy_id);
-      if (!pharmacy_id) throw new Error(`Delivery references missing pharmacy ${old.pharmacy_id || ""}.`);
+      if (!pharmacy_id) {
+        skipped.push(`delivery missing pharmacy ${old.pharmacy_id || ""}`);
+        continue;
+      }
       const batch = await upsert("delivery_batches", {
         owner_id,
-        code: readable(key, "DB", usedCodes.DB),
+        code: stableCode(key, "DB", usedCodes.DB),
         date: old.date,
         pharmacy_id,
         notes: old.notes || "",
@@ -719,16 +890,29 @@ async function importLegacy(legacy, owner_id) {
       clearedBatches.add(batches.get(key));
     }
     const product_id = productMap.get(old.product_id);
-    if (!product_id) throw new Error(`Delivery references missing product ${old.product_id || ""}.`);
-    await insertRows("delivery_items", [{ owner_id, batch_id: batches.get(key), product_id, quantity_sent: Number(old.quantity_sent || 0) }]);
+    if (!product_id) {
+      skipped.push(`delivery missing product ${old.product_id || ""}`);
+      continue;
+    }
+    const lineKey = `${batches.get(key)}|${product_id}`;
+    deliveryLines.set(lineKey, {
+      owner_id,
+      batch_id: batches.get(key),
+      product_id,
+      quantity_sent: Number(deliveryLines.get(lineKey)?.quantity_sent || 0) + Number(old.quantity_sent || 0),
+    });
   }
+  await insertRows("delivery_items", [...deliveryLines.values()].filter((row) => row.quantity_sent > 0));
 
   for (const old of legacy.sales || []) {
     const pharmacy_id = pharmacyMap.get(old.pharmacy_id);
-    if (!pharmacy_id) throw new Error(`Sale references missing pharmacy ${old.pharmacy_id || ""}.`);
+    if (!pharmacy_id) {
+      skipped.push(`sale missing pharmacy ${old.pharmacy_id || ""}`);
+      continue;
+    }
     const report = await upsert("sales_reports", {
       owner_id,
-      code: readable(old.sales_id, "S", usedCodes.S),
+      code: stableCode(old.sales_id, "S", usedCodes.S),
       date: old.date,
       pharmacy_id,
       notes: old.notes || "",
@@ -738,18 +922,32 @@ async function importLegacy(legacy, owner_id) {
       clearedReports.add(report.id);
     }
     const product_id = productMap.get(old.product_id);
-    if (!product_id) throw new Error(`Sale references missing product ${old.product_id || ""}.`);
-    await insertRows("sales_items", [{ owner_id, report_id: report.id, product_id, quantity_sold: Number(old.quantity_sold || 0) }]);
+    if (!product_id) {
+      skipped.push(`sale missing product ${old.product_id || ""}`);
+      continue;
+    }
+    const lineKey = `${report.id}|${product_id}`;
+    salesLines.set(lineKey, {
+      owner_id,
+      report_id: report.id,
+      product_id,
+      quantity_sold: Number(salesLines.get(lineKey)?.quantity_sold || 0) + Number(old.quantity_sold || 0),
+    });
   }
+  await insertRows("sales_items", [...salesLines.values()].filter((row) => row.quantity_sold > 0));
 
   for (const old of legacy.payments || []) {
     const pharmacy_id = pharmacyMap.get(old.pharmacy_id);
-    if (!pharmacy_id) throw new Error(`Payment references missing pharmacy ${old.pharmacy_id || ""}.`);
-    await upsert("payments", { owner_id, code: readable(old.payment_id, "PAY", usedCodes.PAY), date: old.date, pharmacy_id, amount_paid: Number(old.amount_paid || 0), notes: old.notes || "" });
+    if (!pharmacy_id) {
+      skipped.push(`payment missing pharmacy ${old.pharmacy_id || ""}`);
+      continue;
+    }
+    await upsert("payments", { owner_id, code: stableCode(old.payment_id, "PAY", usedCodes.PAY), date: old.date, pharmacy_id, amount_paid: Number(old.amount_paid || 0), notes: old.notes || "" });
   }
   for (const old of legacy.expenses || []) {
-    await upsert("expenses", { owner_id, code: readable(old.expense_id, "E", usedCodes.E), date: old.date, category: old.category || "Other", amount: Number(old.amount || 0), notes: old.notes || "" });
+    await upsert("expenses", { owner_id, code: stableCode(old.expense_id, "E", usedCodes.E), date: old.date, category: old.category || "Other", amount: Number(old.amount || 0), notes: old.notes || "" });
   }
+  return { skipped };
 }
 
 function backupCount(backup) {
@@ -769,6 +967,26 @@ function readable(id, prefix, used) {
   } while (used.has(code));
   used.add(code);
   return code;
+}
+
+function stableCode(id, prefix, used) {
+  if (id) {
+    used.add(id);
+    return id;
+  }
+  return readable(id, prefix, used);
+}
+
+function duplicateNames(rows) {
+  const seen = new Set();
+  const duplicates = new Set();
+  rows.forEach((row) => {
+    const name = String(row.name || "").trim().toLowerCase();
+    if (!name) return;
+    if (seen.has(name)) duplicates.add(row.name);
+    seen.add(name);
+  });
+  return [...duplicates].sort((a, b) => a.localeCompare(b));
 }
 
 function getLocalBackup() {
@@ -816,7 +1034,7 @@ function blankExpense(data) {
 }
 
 function deliveryForEdit(data, batch) {
-  return { ...batch, items: data.deliveryItems.filter((item) => item.batch_id === batch.id).map((item) => ({ product_id: item.product_id, quantity_sent: item.quantity_sent })) };
+  return { ...batch, items: deliveryItemsForBatch(data, batch.id).map((item) => ({ product_id: item.product_id, quantity_sent: item.quantity_sent })) };
 }
 
 function stockAt(data, pharmacy_id, product_id) {
@@ -833,8 +1051,78 @@ function byName(a, b) {
   return a.name.localeCompare(b.name);
 }
 
+function exportBackupCsv(type, data) {
+  const options = {
+    products: {
+      name: "products",
+      keys: ["code", "name", "supplier_name", "purchase_price", "selling_price", "notes"],
+      rows: data.products.slice().sort(byName),
+    },
+    pharmacies: {
+      name: "pharmacies",
+      keys: ["code", "name", "address", "contact_person", "phone_number", "notes"],
+      rows: data.pharmacies.slice().sort(byName),
+    },
+    deliveries: {
+      name: "deliveries",
+      keys: ["delivery_code", "date", "pharmacy_code", "pharmacy", "product_code", "product", "quantity_sent", "notes"],
+      rows: data.deliveryItems.map((item) => {
+        const batch = data.deliveryBatches.find((row) => row.id === item.batch_id) || {};
+        const pharmacy = data.pharmacies.find((row) => row.id === batch.pharmacy_id) || {};
+        const product = data.products.find((row) => row.id === item.product_id) || {};
+        return {
+          delivery_code: batch.code || "",
+          date: batch.date || "",
+          pharmacy_code: pharmacy.code || "",
+          pharmacy: pharmacy.name || "Deleted pharmacy",
+          product_code: product.code || "",
+          product: product.name || "Deleted product",
+          quantity_sent: item.quantity_sent,
+          notes: batch.notes || "",
+        };
+      }).sort((a, b) => b.date.localeCompare(a.date) || a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product)),
+    },
+    sales: {
+      name: "sales",
+      keys: ["sales_code", "date", "pharmacy_code", "pharmacy", "product_code", "product", "quantity_sold", "omzet", "profit", "notes"],
+      rows: data.salesItems.map((item) => {
+        const report = data.salesReports.find((row) => row.id === item.report_id) || {};
+        const pharmacy = data.pharmacies.find((row) => row.id === report.pharmacy_id) || {};
+        const product = data.products.find((row) => row.id === item.product_id) || {};
+        return {
+          sales_code: report.code || "",
+          date: report.date || "",
+          pharmacy_code: pharmacy.code || "",
+          pharmacy: pharmacy.name || "Deleted pharmacy",
+          product_code: product.code || "",
+          product: product.name || "Deleted product",
+          quantity_sold: item.quantity_sold,
+          omzet: item.quantity_sold * (product.selling_price || 0),
+          profit: item.quantity_sold * ((product.selling_price || 0) - (product.purchase_price || 0)),
+          notes: report.notes || "",
+        };
+      }).sort((a, b) => b.date.localeCompare(a.date) || a.pharmacy.localeCompare(b.pharmacy) || a.product.localeCompare(b.product)),
+    },
+    payments: {
+      name: "payments",
+      keys: ["code", "date", "pharmacy_code", "pharmacy", "amount_paid", "notes"],
+      rows: data.payments.map((row) => {
+        const pharmacy = data.pharmacies.find((item) => item.id === row.pharmacy_id) || {};
+        return { ...row, pharmacy_code: pharmacy.code || "", pharmacy: pharmacy.name || "Deleted pharmacy" };
+      }).sort((a, b) => b.date.localeCompare(a.date) || a.pharmacy.localeCompare(b.pharmacy)),
+    },
+    expenses: {
+      name: "expenses",
+      keys: ["code", "date", "category", "amount", "notes"],
+      rows: data.expenses.slice().sort((a, b) => b.date.localeCompare(a.date) || a.category.localeCompare(b.category)),
+    },
+  };
+  const option = options[type] || options.deliveries;
+  exportCsv(option.name, option.rows, option.keys);
+}
+
 function exportCsv(name, rows, keys) {
-  const csv = [keys.join(","), ...rows.map((row) => keys.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\n");
+  const csv = [keys.join(","), ...rows.map((row) => keys.map((key) => JSON.stringify(row[key] ?? "")).join(","))].join("\r\n");
   downloadFile(`${name}-${today()}.csv`, csv, "text/csv");
 }
 

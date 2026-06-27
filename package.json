@@ -4,7 +4,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/report.test.js"
+    "test": "node tests/report.test.js && node tests/sales-delete.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

@@ -219,6 +219,7 @@ export function totals(data, filters = {}) {
     expenses,
     profit: sum(stockRows, "profit") - expenses,
     unpaid: sum(balanceRows, "balance"),
+    cash_earned: sum(balanceRows, "paid") - sum(stockRows, "modal_sold") - expenses,
   };
 }
 

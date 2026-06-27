@@ -48,6 +48,30 @@ button:disabled {
   opacity: 0.5;
 }
 
+button.saving {
+  gap: 8px;
+}
+
+button.saving:disabled {
+  opacity: 0.85;
+}
+
+button.saving::before {
+  animation: spin 0.7s linear infinite;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  content: "";
+  height: 14px;
+  width: 14px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .disabled {
   pointer-events: none;
   opacity: 0.5;
@@ -155,6 +179,10 @@ p {
   padding: 22px;
 }
 
+.tab-page[hidden] {
+  display: none;
+}
+
 .topbar,
 .section-head,
 .inline,
@@ -184,6 +212,16 @@ p {
   border-radius: 999px;
   color: #fff;
   padding: 9px 14px;
+}
+
+.compact-select {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.compact-select select {
+  min-width: 145px;
 }
 
 .panel,
@@ -302,12 +340,22 @@ p {
 }
 
 .lookup-options button {
+  align-items: flex-start;
   background: #fff;
   border-radius: 0;
   color: var(--ink);
+  flex-direction: column;
+  gap: 2px;
   justify-content: flex-start;
   min-height: 0;
   padding: 9px 10px;
+  text-align: left;
+}
+
+.lookup-options small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .lookup-options button:hover {
@@ -376,9 +424,18 @@ tr:last-child td {
 }
 
 .item-list span {
+  align-items: start;
   background: #f3f7f1;
   border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 24px minmax(0, 1fr);
   padding: 5px 7px;
+}
+
+.item-list b {
+  color: var(--muted);
+  text-align: right;
 }
 
 .bars {
@@ -417,6 +474,29 @@ tr:last-child td {
   border-radius: 8px;
   margin: 10px 0 0;
   padding: 10px;
+}
+
+.audit-box {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.audit-box summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.audit-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.audit-list span {
+  background: #f3f7f1;
+  border-radius: 6px;
+  padding: 7px 9px;
 }
 
 .file-button input {
