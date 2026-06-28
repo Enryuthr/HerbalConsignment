@@ -136,17 +136,15 @@ function Dashboard({ data, filters, setFilters, insight, setInsight }) {
     [filters.month ? "Stock sent this month" : "Total stock sent", t.sent],
     [filters.month ? "Sold this month" : "Total quantity sold", t.sold],
     ["Total remaining stock", t.remaining],
-    ["Inventory selling value", money.format(t.inventory_value)],
-    ["Total omzet", money.format(t.omzet)],
-    ["Total modal", money.format(t.modal)],
-    ["Modal delivered", money.format(t.modal_delivered)],
-    ["Modal sold", money.format(t.modal_sold)],
-    ["Modal remaining", money.format(t.modal_remaining)],
+    ["Sales value", money.format(t.omzet)],
+    ["Payment received", money.format(t.paid)],
+    ["Unpaid balance", money.format(t.unpaid)],
+    ["Capital cost", money.format(t.modal)],
+    ["Monthly capital sent", money.format(t.modal_delivered)],
     ["Gross profit", money.format(t.gross_profit)],
-    ["Total expenses", money.format(t.expenses)],
+    ["Expenses", money.format(t.expenses)],
     ["Net profit", money.format(t.profit)],
     ["Cash earned", money.format(t.cash_earned)],
-    ["Total unpaid balance", money.format(t.unpaid)],
   ];
   return (
     <>
@@ -362,6 +360,19 @@ function ExpenseForm({ data, onSave }) {
 function Reports({ data, filters, setFilters }) {
   const stockRows = stockReportRows(data, filters);
   const balanceRows = balanceReportRows(data, filters);
+  const t = totals(data, filters);
+  const summary = [
+    ["Sales value", money.format(t.omzet)],
+    ["Payment received", money.format(t.paid)],
+    ["Unpaid balance", money.format(t.unpaid)],
+    ["Capital cost", money.format(t.modal)],
+    ["Monthly capital sent", money.format(t.modal_delivered)],
+    ["Gross profit", money.format(t.gross_profit)],
+    ["Expenses", money.format(t.expenses)],
+    ["Net profit", money.format(t.profit)],
+    ["Cash earned", money.format(t.cash_earned)],
+  ];
+  const moneyRows = pharmacyMoneyRows(balanceRows, stockRows);
   return (
     <>
       <section className="panel">
@@ -380,12 +391,24 @@ function Reports({ data, filters, setFilters }) {
           <button className="secondary" onClick={() => setFilters({ month: "", pharmacyId: "", startDate: "", endDate: "" })}>Clear</button>
         </div>
       </section>
-      <h3>Stock per Pharmacy and Product</h3>
-      <Table headers={["Pharmacy", "Product", "Last stock", "Total sent", "Total sold", "Remaining", "Inventory value", "Total omzet", "Total modal", "Modal delivered", "Modal sold", "Modal remaining", "Total profit"]} rows={stockRows} render={(row) => [row.pharmacy, row.product, row.last_stock, row.sent, row.sold, row.remaining, money.format(row.inventory_value), money.format(row.omzet), money.format(row.modal), money.format(row.modal_delivered), money.format(row.modal_sold), money.format(row.modal_remaining), money.format(row.profit)]} />
-      <h3>Pharmacy Balance</h3>
-      <Table headers={["Pharmacy", "Inventory value", "Total omzet", "Total modal", "Modal delivered", "Modal sold", "Modal remaining", "Payment received", "Unpaid balance"]} rows={balanceRows} render={(row) => [row.pharmacy, money.format(row.inventory_value), money.format(row.omzet), money.format(row.modal), money.format(row.modal_delivered), money.format(row.modal_sold), money.format(row.modal_remaining), money.format(row.paid), money.format(row.balance)]} />
+      <section className="cards">{summary.map(([label, value]) => <Metric key={label} label={label} value={value} />)}</section>
+      <h3>Stock Report</h3>
+      <Table headers={["Pharmacy", "Product", "Last stock", "Sent", "Sold", "Remaining"]} rows={stockRows} render={(row) => [row.pharmacy, row.product, row.last_stock, row.sent, row.sold, row.remaining]} />
+      <h3>Pharmacy Money</h3>
+      <Table headers={["Pharmacy", "Sales value", "Payment received", "Unpaid balance", "Capital cost", "Profit", "Cash earned"]} rows={moneyRows} render={(row) => [row.pharmacy, money.format(row.omzet), money.format(row.paid), money.format(row.balance), money.format(row.modal), money.format(row.profit), money.format(row.cash_earned)]} />
     </>
   );
+}
+
+function pharmacyMoneyRows(balanceRows, stockRows) {
+  return balanceRows.map((row) => {
+    const products = stockRows.filter((item) => item.pharmacy_id === row.pharmacy_id);
+    return {
+      ...row,
+      profit: products.reduce((total, item) => total + Number(item.profit || 0), 0),
+      cash_earned: row.paid - products.reduce((total, item) => total + Number(item.modal_sold || 0), 0),
+    };
+  });
 }
 
 function Backup({ data, run, userId }) {

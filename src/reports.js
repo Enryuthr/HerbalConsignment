@@ -216,6 +216,7 @@ export function totals(data, filters = {}) {
     modal_sold: sum(stockRows, "modal_sold"),
     modal_remaining: sum(stockRows, "modal_remaining"),
     gross_profit: sum(stockRows, "profit"),
+    paid: sum(balanceRows, "paid"),
     expenses,
     profit: sum(stockRows, "profit") - expenses,
     unpaid: sum(balanceRows, "balance"),

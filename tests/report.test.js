@@ -38,6 +38,7 @@ assert.equal(stock.modal_delivered, 50000);
 assert.equal(stock.modal_sold, 40000);
 assert.equal(stock.modal_remaining, 90000);
 assert.equal(total.gross_profit, 20000);
+assert.equal(total.paid, 30000);
 assert.equal(total.expenses, 5000);
 assert.equal(total.profit, 15000);
 assert.equal(total.cash_earned, -15000);
